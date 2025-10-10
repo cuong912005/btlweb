@@ -1,0 +1,48 @@
+# Node.js modules
+node_modules/
+
+# Package-lock file
+package-lock.json
+
+# Yarn
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+
+# Build output
+dist/
+build/
+.next/
+
+# Logs
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor and IDE related files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+jspm_packages/
+web_modules/
+
+# Temporary files
+tmp/
+temp/

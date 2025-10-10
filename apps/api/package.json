@@ -1,0 +1,41 @@
+{
+  "name": "@volunteerhub/api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "build": "echo 'No build step needed for Node.js'",
+    "test": "jest",
+    "lint": "eslint src --ext .js",
+    "lint:fix": "eslint src --ext .js --fix",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "node src/scripts/seed.js",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "prisma": "^5.4.2",
+    "@prisma/client": "^5.4.2",
+    "jsonwebtoken": "^9.0.2",
+    "bcrypt": "^5.1.1",
+    "joi": "^17.11.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "express-rate-limit": "^6.10.0",
+    "cookie-parser": "^1.4.6",
+    "socket.io": "^4.7.2",
+    "redis": "^4.6.8",
+    "web-push": "^3.6.6",
+    "cloudinary": "^1.40.0",
+    "multer": "^1.4.5-lts.1",
+    "dotenv": "^16.3.1",
+    "@volunteerhub/shared": "*"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3"
+  }
+}
