@@ -1,10 +1,11 @@
 import express from 'express';
 import Joi from 'joi';
-import { PrismaClient } from '@prisma/client';
 import { authenticateToken } from '../middleware/auth.js';
+import ChannelService from '../services/ChannelService.js';
+import { deleteCloudinaryImage, extractPublicId } from '../config/cloudinary.js';
+import { channelImageUpload, handleMulterError } from '../config/multer.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // Validation schemas
 const postSchema = Joi.object({
@@ -34,63 +35,117 @@ const checkChannelAccess = async (req, res, next) => {
     const { channelId } = req.params;
     const userId = req.user.id;
 
-    // Get channel with event information
-    const channel = await prisma.communicationChannel.findUnique({
-      where: { id: channelId },
-      include: {
-        event: {
-          include: {
-            organizer: true,
-            participants: {
-              where: {
-                status: 'APPROVED'
-              },
-              include: {
-                volunteer: true
-              }
-            }
-          }
-        }
-      }
-    });
+    const accessInfo = await ChannelService.checkChannelAccess(channelId, userId);
+    
+    // Attach channel info to request for use in route handlers
+    req.channel = accessInfo.channel;
+    req.isOrganizer = accessInfo.isOrganizer;
+    req.canModerate = accessInfo.canModerate;
 
-    if (!channel) {
+    next();
+  } catch (error) {
+    console.error('Channel access check error:', error);
+    
+    if (error.message === 'CHANNEL_NOT_FOUND') {
       return res.status(404).json({
         error: 'Không tìm thấy kênh trao đổi'
       });
     }
-
-    // Check if event is approved
-    if (channel.event.status !== 'APPROVED') {
-      return res.status(403).json({
-        error: 'Kênh trao đổi chỉ khả dụng cho sự kiện đã được phê duyệt'
-      });
-    }
-
-    // Check if user is organizer or approved participant
-    const isOrganizer = channel.event.organizerId === userId;
-    const isApprovedParticipant = channel.event.participants.some(
-      p => p.volunteerId === userId
-    );
-
-    if (!isOrganizer && !isApprovedParticipant) {
-      return res.status(403).json({
-        error: 'Bạn không có quyền truy cập kênh trao đổi này'
-      });
-    }
-
-    // Add channel and permissions to request
-    req.channel = channel;
-    req.isOrganizer = isOrganizer;
     
-    next();
-  } catch (error) {
-    console.error('Channel access check error:', error);
+    if (error.message === 'ACCESS_DENIED') {
+      return res.status(403).json({
+        error: 'Bạn không có quyền truy cập kênh trao đổi này',
+        message: 'Chỉ người tổ chức sự kiện và những người tham gia đã được phê duyệt mới có thể truy cập'
+      });
+    }
+
     res.status(500).json({
-      error: 'Lỗi khi kiểm tra quyền truy cập kênh'
+      error: 'Lỗi khi kiểm tra quyền truy cập'
     });
   }
 };
+
+// Upload image for channel posts
+router.post('/:channelId/upload-image', authenticateToken, checkChannelAccess, 
+  channelImageUpload.single('image'), 
+  handleMulterError, 
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Không có file hình ảnh được tải lên'
+        });
+      }
+
+      // Cloudinary provides the secure URL directly
+      const imageUrl = req.file.path;
+      const publicId = req.file.filename;
+
+      res.json({
+        success: true,
+        message: 'Tải lên hình ảnh thành công',
+        imageUrl: imageUrl,
+        publicId: publicId,
+        size: req.file.size,
+        format: req.file.format,
+        width: req.file.width,
+        height: req.file.height
+      });
+    } catch (error) {
+      console.error('Image upload error:', error);
+      
+      // If there was an error and file was uploaded to Cloudinary, clean it up
+      if (req.file && req.file.filename) {
+        try {
+          await deleteCloudinaryImage(req.file.filename);
+        } catch (deleteError) {
+          console.error('Error deleting uploaded file from Cloudinary:', deleteError);
+        }
+      }
+
+      res.status(500).json({
+        error: 'Lỗi khi tải lên hình ảnh',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Delete image from Cloudinary
+router.delete('/:channelId/images/:publicId', authenticateToken, checkChannelAccess, async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    
+    // Verify user has permission to delete (author or moderator)
+    const canDelete = req.canModerate; // For now, only moderators can delete images
+    
+    if (!canDelete) {
+      return res.status(403).json({
+        error: 'Bạn không có quyền xóa hình ảnh này'
+      });
+    }
+
+    // Delete from Cloudinary
+    const result = await deleteCloudinaryImage(publicId);
+    
+    if (result) {
+      res.json({
+        success: true,
+        message: 'Đã xóa hình ảnh thành công'
+      });
+    } else {
+      res.status(404).json({
+        error: 'Không tìm thấy hình ảnh để xóa'
+      });
+    }
+  } catch (error) {
+    console.error('Delete image error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi xóa hình ảnh',
+      message: error.message
+    });
+  }
+});
 
 // Get event channel by event ID (Story 2.3 - Channel accessibility)
 router.get('/event/:eventId', authenticateToken, async (req, res) => {
@@ -98,65 +153,34 @@ router.get('/event/:eventId', authenticateToken, async (req, res) => {
     const { eventId } = req.params;
     const userId = req.user.id;
 
-    // Check if user has access to this event
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: {
-        organizer: true,
-        participants: {
-          where: {
-            volunteerId: userId,
-            status: 'APPROVED'
-          }
-        },
-        communicationChannel: true
-      }
-    });
+    const result = await ChannelService.getChannelByEventId(eventId, userId);
 
-    if (!event) {
+    res.json(result);
+  } catch (error) {
+    if (error.message === 'EVENT_NOT_FOUND') {
       return res.status(404).json({
         error: 'Không tìm thấy sự kiện'
       });
     }
-
-    if (event.status !== 'APPROVED') {
+    
+    if (error.message === 'EVENT_NOT_APPROVED') {
       return res.status(403).json({
         error: 'Kênh trao đổi chỉ khả dụng cho sự kiện đã được phê duyệt'
       });
     }
-
-    // Check permissions
-    const isOrganizer = event.organizerId === userId;
-    const isApprovedParticipant = event.participants.length > 0;
-
-    if (!isOrganizer && !isApprovedParticipant) {
+    
+    if (error.message === 'ACCESS_DENIED') {
       return res.status(403).json({
         error: 'Bạn không có quyền truy cập kênh trao đổi này'
       });
     }
-
-    if (!event.communicationChannel) {
+    
+    if (error.message === 'CHANNEL_NOT_CREATED') {
       return res.status(404).json({
         error: 'Kênh trao đổi chưa được tạo cho sự kiện này'
       });
     }
 
-    res.json({
-      channel: {
-        id: event.communicationChannel.id,
-        eventId: event.id,
-        eventTitle: event.title,
-        createdAt: event.communicationChannel.createdAt,
-        permissions: {
-          isOrganizer,
-          canModerate: isOrganizer,
-          canPost: true,
-          canComment: true
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Get event channel error:', error);
     res.status(500).json({
       error: 'Lỗi khi lấy thông tin kênh trao đổi'
     });
@@ -168,82 +192,17 @@ router.get('/:channelId/posts', authenticateToken, checkChannelAccess, async (re
   try {
     const { channelId } = req.params;
     const { page = 1, limit = 20 } = req.query;
-    const skip = (page - 1) * limit;
 
-    const posts = await prisma.channelPost.findMany({
-      where: { channelId },
-      include: {
-        author: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true
-          }
-        },
-        likes: {
-          select: {
-            userId: true
-          }
-        },
-        comments: {
-          include: {
-            author: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                avatar: true
-              }
-            }
-          },
-          orderBy: {
-            createdAt: 'asc'
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      skip: parseInt(skip),
-      take: parseInt(limit)
-    });
-
-    const totalCount = await prisma.channelPost.count({
-      where: { channelId }
-    });
+    const result = await ChannelService.getChannelPosts(channelId, req.user.id, page, limit);
 
     res.json({
-      posts: posts.map(post => ({
-        id: post.id,
-        content: post.content,
-        imageUrl: post.imageUrl,
-        author: post.author,
-        createdAt: post.createdAt,
-        updatedAt: post.updatedAt,
-        likesCount: post.likes.length,
-        isLiked: post.likes.some(like => like.userId === req.user.id),
-        commentsCount: post.comments.length,
-        comments: post.comments.map(comment => ({
-          id: comment.id,
-          content: comment.content,
-          author: comment.author,
-          createdAt: comment.createdAt,
-          updatedAt: comment.updatedAt
-        }))
-      })),
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / limit),
-        totalCount,
-        hasNext: skip + limit < totalCount,
-        hasPrev: page > 1
-      },
+      posts: result.posts,
+      pagination: result.pagination,
       channelInfo: {
         eventTitle: req.channel.event.title,
         permissions: {
           isOrganizer: req.isOrganizer,
-          canModerate: req.isOrganizer
+          canModerate: req.canModerate
         }
       }
     });
@@ -269,45 +228,24 @@ router.post('/:channelId/posts', authenticateToken, checkChannelAccess, async (r
       });
     }
 
-    const { content, imageUrl } = value;
-
-    // Create post
-    const post = await prisma.channelPost.create({
-      data: {
-        channelId,
-        authorId: req.user.id,
-        content,
-        imageUrl: imageUrl || null
-      },
-      include: {
-        author: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true
-          }
-        },
-        likes: true,
-        comments: true
-      }
-    });
+    // Create post using service
+    const postResult = await ChannelService.createPost(channelId, req.user.id, value);
 
     // Emit real-time event to all channel participants
     const io = req.app.get('io');
-    io.to(`event-${req.channel.event.id}`).emit('new-post', {
+    io.to(`event-${postResult.event.id}`).emit('new-post', {
       channelId,
       post: {
-        id: post.id,
-        content: post.content,
-        imageUrl: post.imageUrl,
-        author: post.author,
-        createdAt: post.createdAt,
-        updatedAt: post.updatedAt,
-        likesCount: 0,
-        isLiked: false,
-        commentsCount: 0,
-        comments: []
+        id: postResult.id,
+        content: postResult.content,
+        imageUrl: postResult.imageUrl,
+        author: postResult.author,
+        createdAt: postResult.createdAt,
+        updatedAt: postResult.updatedAt,
+        likeCount: postResult.likeCount,
+        isLikedByUser: postResult.isLikedByUser,
+        commentCount: postResult.commentCount,
+        comments: postResult.comments
       }
     });
 
@@ -315,16 +253,16 @@ router.post('/:channelId/posts', authenticateToken, checkChannelAccess, async (r
       success: true,
       message: 'Bài viết đã được đăng thành công',
       post: {
-        id: post.id,
-        content: post.content,
-        imageUrl: post.imageUrl,
-        author: post.author,
-        createdAt: post.createdAt,
-        updatedAt: post.updatedAt,
-        likesCount: 0,
-        isLiked: false,
-        commentsCount: 0,
-        comments: []
+        id: postResult.id,
+        content: postResult.content,
+        imageUrl: postResult.imageUrl,
+        author: postResult.author,
+        createdAt: postResult.createdAt,
+        updatedAt: postResult.updatedAt,
+        likeCount: postResult.likeCount,
+        isLikedByUser: postResult.isLikedByUser,
+        commentCount: postResult.commentCount,
+        comments: postResult.comments
       }
     });
   } catch (error) {
@@ -341,92 +279,39 @@ router.post('/posts/:postId/like', authenticateToken, async (req, res) => {
     const { postId } = req.params;
     const userId = req.user.id;
 
-    // Check if post exists and user has access to its channel
-    const post = await prisma.channelPost.findUnique({
-      where: { id: postId },
-      include: {
-        channel: {
-          include: {
-            event: {
-              include: {
-                participants: {
-                  where: {
-                    volunteerId: userId,
-                    status: 'APPROVED'
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+    // Use service to handle like/unlike
+    const result = await ChannelService.togglePostLike(postId, userId);
+
+    // Emit real-time event
+    const io = req.app.get('io');
+    io.to(`event-${result.eventId}`).emit('post-liked', {
+      postId: result.postId,
+      userId,
+      action: result.isLiked ? 'liked' : 'unliked',
+      likeCount: result.likeCount
     });
 
-    if (!post) {
+    res.json({
+      success: true,
+      action: result.isLiked ? 'liked' : 'unliked',
+      likeCount: result.likeCount,
+      isLiked: result.isLiked
+    });
+  } catch (error) {
+    console.error('Like post error:', error);
+    
+    if (error.message === 'POST_NOT_FOUND') {
       return res.status(404).json({
         error: 'Không tìm thấy bài viết'
       });
     }
-
-    // Check access permissions
-    const isOrganizer = post.channel.event.organizerId === userId;
-    const isApprovedParticipant = post.channel.event.participants.length > 0;
-
-    if (!isOrganizer && !isApprovedParticipant) {
+    
+    if (error.message === 'ACCESS_DENIED') {
       return res.status(403).json({
         error: 'Bạn không có quyền truy cập bài viết này'
       });
     }
 
-    // Check if already liked
-    const existingLike = await prisma.postLike.findUnique({
-      where: {
-        postId_userId: {
-          postId,
-          userId
-        }
-      }
-    });
-
-    let action;
-    let likesCount;
-
-    if (existingLike) {
-      // Unlike
-      await prisma.postLike.delete({
-        where: { id: existingLike.id }
-      });
-      action = 'unliked';
-      likesCount = await prisma.postLike.count({ where: { postId } });
-    } else {
-      // Like
-      await prisma.postLike.create({
-        data: {
-          postId,
-          userId
-        }
-      });
-      action = 'liked';
-      likesCount = await prisma.postLike.count({ where: { postId } });
-    }
-
-    // Emit real-time event
-    const io = req.app.get('io');
-    io.to(`event-${post.channel.event.id}`).emit('post-liked', {
-      postId,
-      userId,
-      action,
-      likesCount
-    });
-
-    res.json({
-      success: true,
-      action,
-      likesCount,
-      isLiked: action === 'liked'
-    });
-  } catch (error) {
-    console.error('Like post error:', error);
     res.status(500).json({
       error: 'Lỗi khi thích/bỏ thích bài viết'
     });
@@ -448,74 +333,18 @@ router.post('/posts/:postId/comments', authenticateToken, async (req, res) => {
       });
     }
 
-    const { content } = value;
-
-    // Check if post exists and user has access
-    const post = await prisma.channelPost.findUnique({
-      where: { id: postId },
-      include: {
-        channel: {
-          include: {
-            event: {
-              include: {
-                participants: {
-                  where: {
-                    volunteerId: userId,
-                    status: 'APPROVED'
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    });
-
-    if (!post) {
-      return res.status(404).json({
-        error: 'Không tìm thấy bài viết'
-      });
-    }
-
-    // Check access permissions
-    const isOrganizer = post.channel.event.organizerId === userId;
-    const isApprovedParticipant = post.channel.event.participants.length > 0;
-
-    if (!isOrganizer && !isApprovedParticipant) {
-      return res.status(403).json({
-        error: 'Bạn không có quyền bình luận bài viết này'
-      });
-    }
-
-    // Create comment
-    const comment = await prisma.postComment.create({
-      data: {
-        postId,
-        authorId: userId,
-        content
-      },
-      include: {
-        author: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatar: true
-          }
-        }
-      }
-    });
+    // Use service to add comment
+    const commentResult = await ChannelService.addComment(postId, userId, value);
 
     // Emit real-time event
     const io = req.app.get('io');
-    io.to(`event-${post.channel.event.id}`).emit('new-comment', {
-      postId,
+    io.to(`event-${commentResult.eventId}`).emit('new-comment', {
+      postId: commentResult.postId,
       comment: {
-        id: comment.id,
-        content: comment.content,
-        author: comment.author,
-        createdAt: comment.createdAt,
-        updatedAt: comment.updatedAt
+        id: commentResult.id,
+        content: commentResult.content,
+        author: commentResult.author,
+        createdAt: commentResult.createdAt
       }
     });
 
@@ -523,15 +352,27 @@ router.post('/posts/:postId/comments', authenticateToken, async (req, res) => {
       success: true,
       message: 'Bình luận đã được thêm thành công',
       comment: {
-        id: comment.id,
-        content: comment.content,
-        author: comment.author,
-        createdAt: comment.createdAt,
-        updatedAt: comment.updatedAt
+        id: commentResult.id,
+        content: commentResult.content,
+        author: commentResult.author,
+        createdAt: commentResult.createdAt
       }
     });
   } catch (error) {
     console.error('Create comment error:', error);
+    
+    if (error.message === 'POST_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy bài viết'
+      });
+    }
+    
+    if (error.message === 'ACCESS_DENIED') {
+      return res.status(403).json({
+        error: 'Bạn không có quyền bình luận bài viết này'
+      });
+    }
+
     res.status(500).json({
       error: 'Lỗi khi tạo bình luận'
     });
@@ -544,44 +385,14 @@ router.delete('/posts/:postId', authenticateToken, async (req, res) => {
     const { postId } = req.params;
     const userId = req.user.id;
 
-    // Get post with channel and event info
-    const post = await prisma.channelPost.findUnique({
-      where: { id: postId },
-      include: {
-        channel: {
-          include: {
-            event: true
-          }
-        }
-      }
-    });
-
-    if (!post) {
-      return res.status(404).json({
-        error: 'Không tìm thấy bài viết'
-      });
-    }
-
-    // Check if user is post author or event organizer (moderator)
-    const isAuthor = post.authorId === userId;
-    const isOrganizer = post.channel.event.organizerId === userId;
-
-    if (!isAuthor && !isOrganizer) {
-      return res.status(403).json({
-        error: 'Bạn không có quyền xóa bài viết này'
-      });
-    }
-
-    // Delete post (cascade will handle likes and comments)
-    await prisma.channelPost.delete({
-      where: { id: postId }
-    });
+    // Use service to delete post
+    const deleteResult = await ChannelService.deletePost(postId, userId);
 
     // Emit real-time event
     const io = req.app.get('io');
-    io.to(`event-${post.channel.event.id}`).emit('post-deleted', {
-      postId,
-      deletedBy: userId
+    io.to(`event-${deleteResult.eventId}`).emit('post-deleted', {
+      postId: deleteResult.postId,
+      deletedBy: deleteResult.deletedBy
     });
 
     res.json({
@@ -590,6 +401,19 @@ router.delete('/posts/:postId', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Delete post error:', error);
+    
+    if (error.message === 'POST_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy bài viết'
+      });
+    }
+    
+    if (error.message === 'DELETE_PERMISSION_DENIED') {
+      return res.status(403).json({
+        error: 'Bạn không có quyền xóa bài viết này'
+      });
+    }
+
     res.status(500).json({
       error: 'Lỗi khi xóa bài viết'
     });

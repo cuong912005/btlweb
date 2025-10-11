@@ -3,6 +3,23 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Parse JWT expiration to milliseconds for cookie maxAge
+const parseJWTExpiration = (expiresIn) => {
+  const match = expiresIn.match(/^(\d+)([smhd])$/);
+  if (!match) return 15 * 60 * 1000; // Default 15 minutes
+  
+  const value = parseInt(match[1]);
+  const unit = match[2];
+  
+  switch (unit) {
+    case 's': return value * 1000;
+    case 'm': return value * 60 * 1000;
+    case 'h': return value * 60 * 60 * 1000;
+    case 'd': return value * 24 * 60 * 60 * 1000;
+    default: return 15 * 60 * 1000;
+  }
+};
+
 // Authentication middleware - validates JWT tokens with auto-refresh
 export const authenticateToken = async (req, res, next) => {
   try {
@@ -82,15 +99,18 @@ export const authenticateToken = async (req, res, next) => {
           const newAccessToken = jwt.sign(
             { userId: user.id, role: user.role },
             process.env.JWT_SECRET,
-            { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+            { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
           );
+
+          // Get cookie maxAge from env variable
+          const accessTokenMaxAge = parseJWTExpiration(process.env.JWT_EXPIRES_IN || '15m');
 
           // Set new access token cookie
           res.cookie('accessToken', newAccessToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 60 * 60 * 1000 // 1 hour
+            maxAge: accessTokenMaxAge
           });
 
           // Also set as 'token' for compatibility
@@ -98,7 +118,7 @@ export const authenticateToken = async (req, res, next) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 60 * 60 * 1000 // 1 hour
+            maxAge: accessTokenMaxAge
           });
 
           req.user = user;
@@ -133,10 +153,29 @@ export const requireRole = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+    // Handle both array and spread syntax
+    // If first argument is array, use it; otherwise use spread arguments
+    const roleArray = Array.isArray(roles[0]) ? roles[0] : roles;
+
+    // Debug logging
+    console.log('RequireRole Debug:', {
+      userRole: req.user.role,
+      requiredRoles: roleArray,
+      userId: req.user.id,
+      userEmail: req.user.email,
+      originalRoles: roles
+    });
+
+    if (!roleArray.includes(req.user.role)) {
+      console.log('Role check failed:', {
+        userRole: req.user.role,
+        requiredRoles: roleArray,
+        includes: roleArray.includes(req.user.role)
+      });
+      
       return res.status(403).json({ 
         error: 'Không có quyền truy cập',
-        message: `Chức năng này chỉ dành cho: ${roles.join(', ')}`
+        message: `Chức năng này chỉ dành cho: ${roleArray.join(', ')}. Bạn hiện là: ${req.user.role}`
       });
     }
 
