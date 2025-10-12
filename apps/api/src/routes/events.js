@@ -1,10 +1,10 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import Joi from 'joi';
-import { PrismaClient } from '@prisma/client';
 import { authenticateToken, requireRole, requireOrganizerOrAdmin } from '../middleware/auth.js';
+import EventService from '../services/EventService.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // Validation schema for event creation
 const createEventSchema = Joi.object({
@@ -57,52 +57,29 @@ router.post('/', authenticateToken, requireOrganizerOrAdmin, async (req, res) =>
       });
     }
 
-    const { title, description, location, startDate, endDate, capacity, category } = value;
-
-    // Create event with pending approval status
-    const event = await prisma.event.create({
-      data: {
-        title,
-        description,
-        location,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        capacity: capacity || null,
-        category,
-        status: 'PENDING', // Automatically set to pending approval
-        organizerId: req.user.id
-      },
-      include: {
-        organizer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        }
-      }
-    });
+    // Use service to create event
+    const event = await EventService.createEvent(value, req.user.id);
 
     res.status(201).json({
       success: true,
       message: 'Sự kiện đã được tạo thành công và đang chờ phê duyệt',
-      event: {
-        id: event.id,
-        title: event.title,
-        description: event.description,
-        location: event.location,
-        startDate: event.startDate,
-        endDate: event.endDate,
-        capacity: event.capacity,
-        category: event.category,
-        status: event.status,
-        organizer: event.organizer,
-        createdAt: event.createdAt
-      }
+      event
     });
   } catch (error) {
     console.error('Event creation error:', error);
+    
+    if (error.message === 'START_DATE_MUST_BE_FUTURE') {
+      return res.status(400).json({
+        error: 'Ngày bắt đầu phải là ngày trong tương lai'
+      });
+    }
+    
+    if (error.message === 'END_DATE_MUST_BE_AFTER_START') {
+      return res.status(400).json({
+        error: 'Ngày kết thúc phải sau ngày bắt đầu'
+      });
+    }
+
     res.status(500).json({
       error: 'Lỗi máy chủ khi tạo sự kiện',
       message: 'Đã xảy ra lỗi không mong muốn. Vui lòng thử lại sau.'
@@ -127,41 +104,549 @@ router.get('/categories', (req, res) => {
   });
 });
 
-// List events (basic implementation for testing)
+// Get user's registrations (volunteer only) - MOVED UP to avoid conflict
+router.get('/my-registrations', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
+  try {
+    const { status } = req.query;
+    const userId = req.user.id;
+
+    const registrations = await EventService.getUserRegistrations(userId, status);
+
+    res.json({
+      success: true,
+      registrations,
+      totalCount: registrations.length
+    });
+  } catch (error) {
+    console.error('Get user registrations error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi lấy danh sách đăng ký của bạn'
+    });
+  }
+});
+
+// Get volunteer's participation history and statistics (Story 3.4) - MOVED UP
+router.get('/volunteers/participation-history', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
+  try {
+    const volunteerId = req.user.id;
+
+    const historyData = await EventService.getVolunteerParticipationHistory(volunteerId);
+
+    res.json({
+      success: true,
+      ...historyData
+    });
+  } catch (error) {
+    console.error('Get volunteer participation history error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi lấy lịch sử tham gia tình nguyện'
+    });
+  }
+});
+
+// Export volunteer's participation data (Story 3.4) - MOVED UP
+router.get('/volunteers/participation-history/export', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
+  try {
+    const { format = 'json' } = req.query;
+    const volunteerId = req.user.id;
+
+    if (!['json', 'csv'].includes(format)) {
+      return res.status(400).json({
+        error: 'Định dạng không hợp lệ. Chỉ hỗ trợ json và csv'
+      });
+    }
+
+    const exportData = await EventService.exportVolunteerParticipationData(volunteerId, format);
+
+    if (format === 'csv') {
+      // Return CSV data
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportData.filename}"`);
+      
+      // Convert to CSV string with UTF-8 BOM for Excel compatibility
+      const csvContent = [
+        '\uFEFF', // UTF-8 BOM
+        exportData.headers.join(','),
+        ...exportData.data.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      return res.send(csvContent);
+    } else {
+      // Return JSON data
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportData.filename}"`);
+      return res.json(exportData.data);
+    }
+  } catch (error) {
+    console.error('Export volunteer participation error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi xuất dữ liệu tham gia tình nguyện'
+    });
+  }
+});
+
+// Get organizer's events - MOVED UP
+router.get('/my-events', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const organizerId = req.user.id;
+
+    const events = await EventService.getOrganizerEvents(organizerId, status);
+
+    res.json({
+      success: true,
+      events,
+      totalCount: events.length
+    });
+  } catch (error) {
+    console.error('Get organizer events error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi lấy danh sách sự kiện của bạn'
+    });
+  }
+});
+
+// Get organizer's events with participant summaries (organizer only) - MOVED UP
+router.get('/my-events-summary', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const organizerId = req.user.id;
+
+    const events = await EventService.getOrganizerEventsWithParticipants(organizerId, status);
+
+    res.json({
+      success: true,
+      events,
+      totalCount: events.length
+    });
+  } catch (error) {
+    console.error('Get organizer events with participants error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi lấy danh sách sự kiện với thông tin người tham gia'
+    });
+  }
+});
+
+// Get event by ID
+router.get('/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    
+    // Extract user ID from token if present (optional authentication)
+    let userId = null;
+    try {
+      const token = req.cookies?.accessToken || req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
+      if (token) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = decoded.userId;
+      }
+    } catch (tokenError) {
+      // Token is invalid or expired, continue without user context
+    }
+
+    const event = await EventService.getEventById(eventId, userId);
+
+    res.json({
+      success: true,
+      event
+    });
+  } catch (error) {
+    console.error('Get event by ID error:', error);
+    
+    if (error.message === 'EVENT_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi lấy thông tin sự kiện'
+    });
+  }
+});
+
+// Register for event (volunteer only)
+router.post('/:eventId/register', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const volunteerId = req.user.id;
+
+    const registration = await EventService.registerForEvent(eventId, volunteerId);
+
+    res.status(201).json({
+      success: true,
+      message: 'Đăng ký tham gia sự kiện thành công! Vui lòng chờ người tổ chức phê duyệt.',
+      registration
+    });
+  } catch (error) {
+    console.error('Event registration error:', error);
+    
+    if (error.message === 'EVENT_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện'
+      });
+    }
+    
+    if (error.message === 'EVENT_NOT_APPROVED') {
+      return res.status(400).json({
+        error: 'Sự kiện chưa được phê duyệt'
+      });
+    }
+    
+    if (error.message === 'EVENT_FULL') {
+      return res.status(400).json({
+        error: 'Sự kiện đã đầy, không thể đăng ký thêm'
+      });
+    }
+    
+    if (error.message === 'ALREADY_REGISTERED') {
+      return res.status(400).json({
+        error: 'Bạn đã đăng ký tham gia sự kiện này rồi'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi đăng ký tham gia sự kiện'
+    });
+  }
+});
+
+// Cancel registration (volunteer only)
+router.delete('/registrations/:registrationId', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
+  try {
+    const { registrationId } = req.params;
+    const userId = req.user.id;
+
+    const result = await EventService.cancelRegistration(registrationId, userId);
+
+    res.json({
+      success: true,
+      message: result.message,
+      event: result.event
+    });
+  } catch (error) {
+    console.error('Cancel registration error:', error);
+    
+    if (error.message === 'REGISTRATION_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy đăng ký'
+      });
+    }
+    
+    if (error.message === 'NOT_YOUR_REGISTRATION') {
+      return res.status(403).json({
+        error: 'Bạn không có quyền hủy đăng ký này'
+      });
+    }
+    
+    if (error.message === 'EVENT_ALREADY_STARTED') {
+      return res.status(400).json({
+        error: 'Không thể hủy đăng ký sau khi sự kiện đã bắt đầu'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi hủy đăng ký'
+    });
+  }
+});
+
+// Get event participants (organizer only)
+router.get('/:eventId/participants', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const organizerId = req.user.id;
+
+    const participants = await EventService.getEventParticipants(eventId, organizerId);
+
+    res.json({
+      success: true,
+      participants,
+      totalCount: participants.length
+    });
+  } catch (error) {
+    console.error('Get event participants error:', error);
+    
+    if (error.message === 'EVENT_NOT_FOUND_OR_NOT_OWNER') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện hoặc bạn không phải là người tổ chức'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi lấy danh sách người tham gia'
+    });
+  }
+});
+
+// Update participant status (organizer only) - Enhanced with reason
+router.patch('/participants/:participantId/status', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { participantId } = req.params;
+    const { status, reason } = req.body;
+    const organizerId = req.user.id;
+
+    if (!['APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({
+        error: 'Trạng thái không hợp lệ. Chỉ được phép APPROVED hoặc REJECTED'
+      });
+    }
+
+    const updatedParticipant = await EventService.updateParticipantStatus(participantId, status, organizerId, reason);
+
+    res.json({
+      success: true,
+      message: `Đã ${status === 'APPROVED' ? 'phê duyệt' : 'từ chối'} người tham gia`,
+      participant: updatedParticipant
+    });
+  } catch (error) {
+    console.error('Update participant status error:', error);
+    
+    if (error.message === 'PARTICIPANT_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy người tham gia'
+      });
+    }
+    
+    if (error.message === 'NOT_EVENT_ORGANIZER') {
+      return res.status(403).json({
+        error: 'Bạn không phải là người tổ chức sự kiện này'
+      });
+    }
+    
+    if (error.message === 'EVENT_FULL') {
+      return res.status(400).json({
+        error: 'Sự kiện đã đầy, không thể phê duyệt thêm người tham gia'
+      });
+    }
+    
+    if (error.message === 'REJECTION_REASON_REQUIRED') {
+      return res.status(400).json({
+        error: 'Lý do từ chối là bắt buộc khi từ chối người tham gia'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi cập nhật trạng thái người tham gia'
+    });
+  }
+});
+
+// Bulk update participant status (organizer only) - Story 3.3
+router.patch('/participants/bulk-status', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { participantIds, status, reason } = req.body;
+    const organizerId = req.user.id;
+
+    if (!Array.isArray(participantIds) || participantIds.length === 0) {
+      return res.status(400).json({
+        error: 'Danh sách ID người tham gia không hợp lệ'
+      });
+    }
+
+    if (!['APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({
+        error: 'Trạng thái không hợp lệ. Chỉ được phép APPROVED hoặc REJECTED'
+      });
+    }
+
+    const result = await EventService.bulkUpdateParticipantStatus(participantIds, status, organizerId, reason);
+
+    res.json({
+      success: true,
+      message: `Đã ${status === 'APPROVED' ? 'phê duyệt' : 'từ chối'} ${result.updatedCount} người tham gia`,
+      result
+    });
+  } catch (error) {
+    console.error('Bulk update participant status error:', error);
+    
+    if (error.message === 'SOME_PARTICIPANTS_NOT_FOUND_OR_NOT_AUTHORIZED') {
+      return res.status(404).json({
+        error: 'Một số người tham gia không tìm thấy hoặc bạn không có quyền'
+      });
+    }
+    
+    if (error.message === 'REJECTION_REASON_REQUIRED') {
+      return res.status(400).json({
+        error: 'Lý do từ chối là bắt buộc khi từ chối hàng loạt'
+      });
+    }
+
+    if (error.message.startsWith('EVENT_CAPACITY_EXCEEDED_FOR_')) {
+      return res.status(400).json({
+        error: 'Một số sự kiện sẽ vượt quá sức chứa nếu phê duyệt tất cả'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi cập nhật hàng loạt trạng thái người tham gia'
+    });
+  }
+});
+
+// Export event participants (organizer only) - Story 3.3
+router.get('/:eventId/participants/export', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { format = 'json' } = req.query;
+    const organizerId = req.user.id;
+
+    if (!['json', 'csv'].includes(format)) {
+      return res.status(400).json({
+        error: 'Định dạng không hợp lệ. Chỉ hỗ trợ json và csv'
+      });
+    }
+
+    const exportData = await EventService.exportEventParticipants(eventId, organizerId, format);
+
+    if (format === 'csv') {
+      // Return CSV data
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportData.filename}"`);
+      
+      // Convert to CSV string
+      const csvContent = [
+        exportData.headers.join(','),
+        ...exportData.data.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      return res.send(csvContent);
+    } else {
+      // Return JSON data
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportData.filename}"`);
+      return res.json(exportData.data);
+    }
+  } catch (error) {
+    console.error('Export participants error:', error);
+    
+    if (error.message === 'EVENT_NOT_FOUND_OR_NOT_OWNER') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện hoặc bạn không phải là người tổ chức'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi xuất danh sách người tham gia'
+    });
+  }
+});
+
+// Rate and provide feedback for completed event (Story 3.4)
+router.post('/:eventId/rate', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { rating, feedback } = req.body;
+    const volunteerId = req.user.id;
+
+    const result = await EventService.rateEvent(eventId, volunteerId, rating, feedback);
+
+    res.json({
+      success: true,
+      message: 'Cảm ơn bạn đã đánh giá sự kiện!',
+      rating: result
+    });
+  } catch (error) {
+    console.error('Rate event error:', error);
+    
+    if (error.message === 'INVALID_RATING') {
+      return res.status(400).json({
+        error: 'Đánh giá không hợp lệ. Vui lòng chọn từ 1 đến 5 sao'
+      });
+    }
+    
+    if (error.message === 'PARTICIPATION_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Bạn chưa tham gia sự kiện này'
+      });
+    }
+    
+    if (error.message === 'PARTICIPATION_NOT_APPROVED') {
+      return res.status(400).json({
+        error: 'Bạn chưa được phê duyệt tham gia sự kiện này'
+      });
+    }
+    
+    if (error.message === 'EVENT_NOT_COMPLETED') {
+      return res.status(400).json({
+        error: 'Chỉ có thể đánh giá sau khi sự kiện kết thúc'
+      });
+    }
+    
+    if (error.message === 'ALREADY_RATED') {
+      return res.status(400).json({
+        error: 'Bạn đã đánh giá sự kiện này rồi'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi đánh giá sự kiện'
+    });
+  }
+});
+
+// Get event feedback and ratings (organizer only) - Story 3.4
+router.get('/:eventId/feedback', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const organizerId = req.user.id;
+
+    const feedbackData = await EventService.getEventFeedback(eventId, organizerId);
+
+    res.json({
+      success: true,
+      ...feedbackData
+    });
+  } catch (error) {
+    console.error('Get event feedback error:', error);
+    
+    if (error.message === 'EVENT_NOT_FOUND_OR_NOT_OWNER') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện hoặc bạn không phải là người tổ chức'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi lấy đánh giá sự kiện'
+    });
+  }
+});
+
+// List events with enhanced filtering and search (Story 3.1)
 router.get('/', async (req, res) => {
   try {
-    const events = await prisma.event.findMany({
-      where: {
-        status: 'APPROVED' // Only show approved events to public
-      },
-      include: {
-        organizer: {
-          select: {
-            firstName: true,
-            lastName: true
-          }
-        },
-        _count: {
-          select: {
-            participants: true
-          }
-        }
-      },
-      orderBy: {
-        startDate: 'asc'
-      }
+    const { 
+      category, 
+      location, 
+      search, 
+      startDate, 
+      endDate, 
+      sortBy,
+      sortOrder,
+      page, 
+      limit,
+      availability 
+    } = req.query;
+
+    const result = await EventService.getApprovedEvents({
+      category,
+      location,
+      search,
+      startDate,
+      endDate,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+      availability
     });
 
-    res.json({ 
-      events: events.map(event => ({
-        ...event,
-        participantCount: event._count.participants
-      }))
-    });
+    res.json(result);
   } catch (error) {
     console.error('Get events error:', error);
     res.status(500).json({
-      error: 'Lỗi khi lấy danh sách sự kiện'
+      error: 'Lỗi khi lấy danh sách sự kiện',
+      message: 'Đã xảy ra lỗi không mong muốn. Vui lòng thử lại sau.'
     });
   }
 });

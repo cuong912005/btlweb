@@ -1,10 +1,9 @@
 import express from 'express';
 import Joi from 'joi';
-import { PrismaClient } from '@prisma/client';
 import { authenticateToken, requireAdmin } from '../middleware/auth.js';
+import AdminService from '../services/AdminService.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // Validation schema for event approval/rejection
 const eventApprovalSchema = Joi.object({
@@ -26,44 +25,11 @@ const eventApprovalSchema = Joi.object({
 // Get all pending events for approval (Story 2.2)
 router.get('/events/pending', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const pendingEvents = await prisma.event.findMany({
-      where: {
-        status: 'PENDING'
-      },
-      include: {
-        organizer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            phone: true,
-            location: true,
-            createdAt: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'asc' // Oldest first for fair processing
-      }
-    });
+    const pendingEvents = await AdminService.getPendingEvents();
 
     res.json({
       message: 'Danh sách sự kiện chờ phê duyệt',
-      pendingEvents: pendingEvents.map(event => ({
-        id: event.id,
-        title: event.title,
-        description: event.description,
-        location: event.location,
-        startDate: event.startDate,
-        endDate: event.endDate,
-        capacity: event.capacity,
-        category: event.category,
-        status: event.status,
-        organizer: event.organizer,
-        createdAt: event.createdAt,
-        submittedDaysAgo: Math.floor((new Date() - new Date(event.createdAt)) / (1000 * 60 * 60 * 24))
-      })),
+      pendingEvents,
       totalCount: pendingEvents.length
     });
   } catch (error) {
@@ -90,84 +56,15 @@ router.patch('/events/:eventId/approval', authenticateToken, requireAdmin, async
 
     const { action, reason } = value;
 
-    // Check if event exists and is pending
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: {
-        organizer: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        }
-      }
-    });
+    // Call service to handle business logic
+    const result = await AdminService.approveOrRejectEvent(eventId, action, reason, req.user.id);
 
-    if (!event) {
-      return res.status(404).json({
-        error: 'Không tìm thấy sự kiện'
-      });
-    }
-
-    if (event.status !== 'PENDING') {
-      return res.status(400).json({
-        error: 'Sự kiện này đã được xử lý',
-        message: `Trạng thái hiện tại: ${event.status}`
-      });
-    }
-
-    // Update event status
-    const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
-    
-    const updatedEvent = await prisma.$transaction(async (tx) => {
-      // Update event status
-      const updated = await tx.event.update({
-        where: { id: eventId },
-        data: {
-          status: newStatus,
-          approvedAt: action === 'approve' ? new Date() : null,
-          rejectionReason: action === 'reject' ? reason : null,
-          approvedBy: req.user.id
-        },
-        include: {
-          organizer: {
-            select: {
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        }
-      });
-
-      // If approved, create communication channel (Story 2.3 integration)
-      if (action === 'approve') {
-        await tx.communicationChannel.create({
-          data: {
-            eventId: eventId
-          }
-        });
-      }
-
-      return updated;
-    });
-
-    // TODO: Send notification to event organizer (will implement in Epic 4)
-    
     res.json({
       success: true,
       message: action === 'approve' 
         ? 'Sự kiện đã được phê duyệt thành công và kênh trao đổi đã được tạo'
         : 'Sự kiện đã bị từ chối',
-      event: {
-        id: updatedEvent.id,
-        title: updatedEvent.title,
-        status: updatedEvent.status,
-        approvedAt: updatedEvent.approvedAt,
-        rejectionReason: updatedEvent.rejectionReason,
-        organizer: updatedEvent.organizer
-      },
+      event: result,
       processedBy: {
         id: req.user.id,
         name: `${req.user.firstName} ${req.user.lastName}`
@@ -176,6 +73,20 @@ router.patch('/events/:eventId/approval', authenticateToken, requireAdmin, async
     });
   } catch (error) {
     console.error('Event approval error:', error);
+    
+    // Handle specific service errors
+    if (error.message === 'EVENT_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện'
+      });
+    }
+    
+    if (error.message === 'EVENT_ALREADY_PROCESSED') {
+      return res.status(400).json({
+        error: 'Sự kiện này đã được xử lý'
+      });
+    }
+
     res.status(500).json({
       error: 'Lỗi khi xử lý phê duyệt sự kiện',
       message: 'Đã xảy ra lỗi không mong muốn. Vui lòng thử lại sau.'
@@ -188,71 +99,8 @@ router.patch('/events/bulk-approval', authenticateToken, requireAdmin, async (re
   try {
     const { eventIds, action, reason } = req.body;
 
-    if (!eventIds || !Array.isArray(eventIds) || eventIds.length === 0) {
-      return res.status(400).json({
-        error: 'Danh sách ID sự kiện không hợp lệ'
-      });
-    }
-
-    if (!['approve', 'reject'].includes(action)) {
-      return res.status(400).json({
-        error: 'Hành động phải là "approve" hoặc "reject"'
-      });
-    }
-
-    if (action === 'reject' && (!reason || reason.trim().length < 10)) {
-      return res.status(400).json({
-        error: 'Lý do từ chối là bắt buộc và phải có ít nhất 10 ký tự'
-      });
-    }
-
-    // Get pending events
-    const pendingEvents = await prisma.event.findMany({
-      where: {
-        id: { in: eventIds },
-        status: 'PENDING'
-      }
-    });
-
-    if (pendingEvents.length === 0) {
-      return res.status(400).json({
-        error: 'Không có sự kiện nào đang chờ phê duyệt trong danh sách'
-      });
-    }
-
-    const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
-    
-    const results = await prisma.$transaction(async (tx) => {
-      // Update all events
-      const updatedEvents = await tx.event.updateMany({
-        where: {
-          id: { in: pendingEvents.map(e => e.id) },
-          status: 'PENDING'
-        },
-        data: {
-          status: newStatus,
-          approvedAt: action === 'approve' ? new Date() : null,
-          rejectionReason: action === 'reject' ? reason : null,
-          approvedBy: req.user.id
-        }
-      });
-
-      // If approved, create communication channels
-      if (action === 'approve') {
-        const channelData = pendingEvents.map(event => ({
-          eventId: event.id
-        }));
-        
-        await tx.communicationChannel.createMany({
-          data: channelData
-        });
-      }
-
-      return { 
-        processedCount: updatedEvents.count,
-        eventIds: pendingEvents.map(e => e.id)
-      };
-    });
+    // Call service to handle business logic
+    const results = await AdminService.bulkApproveOrRejectEvents(eventIds, action, reason, req.user.id);
 
     res.json({
       success: true,
@@ -267,6 +115,32 @@ router.patch('/events/bulk-approval', authenticateToken, requireAdmin, async (re
     });
   } catch (error) {
     console.error('Bulk approval error:', error);
+    
+    // Handle specific service errors
+    if (error.message === 'INVALID_EVENT_IDS') {
+      return res.status(400).json({
+        error: 'Danh sách ID sự kiện không hợp lệ'
+      });
+    }
+    
+    if (error.message === 'INVALID_ACTION') {
+      return res.status(400).json({
+        error: 'Hành động phải là "approve" hoặc "reject"'
+      });
+    }
+    
+    if (error.message === 'REJECTION_REASON_REQUIRED') {
+      return res.status(400).json({
+        error: 'Lý do từ chối là bắt buộc và phải có ít nhất 10 ký tự'
+      });
+    }
+    
+    if (error.message === 'NO_PENDING_EVENTS') {
+      return res.status(400).json({
+        error: 'Không có sự kiện nào đang chờ phê duyệt trong danh sách'
+      });
+    }
+
     res.status(500).json({
       error: 'Lỗi khi xử lý phê duyệt hàng loạt'
     });
@@ -277,65 +151,92 @@ router.patch('/events/bulk-approval', authenticateToken, requireAdmin, async (re
 router.get('/events/approval-history', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
-    const skip = (page - 1) * limit;
+    
+    const result = await AdminService.getApprovalHistory(page, limit, status);
 
-    const where = {};
-    if (status && ['APPROVED', 'REJECTED'].includes(status)) {
-      where.status = status;
-    } else {
-      where.status = { in: ['APPROVED', 'REJECTED'] };
-    }
-
-    const events = await prisma.event.findMany({
-      where,
-      include: {
-        organizer: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        },
-        approver: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true
-          }
-        }
-      },
-      orderBy: {
-        approvedAt: 'desc'
-      },
-      skip: parseInt(skip),
-      take: parseInt(limit)
-    });
-
-    const totalCount = await prisma.event.count({ where });
-
-    res.json({
-      events: events.map(event => ({
-        id: event.id,
-        title: event.title,
-        status: event.status,
-        organizer: event.organizer,
-        approver: event.approver,
-        approvedAt: event.approvedAt,
-        rejectionReason: event.rejectionReason,
-        createdAt: event.createdAt
-      })),
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalCount / limit),
-        totalCount,
-        hasNext: skip + limit < totalCount,
-        hasPrev: page > 1
-      }
-    });
+    res.json(result);
   } catch (error) {
     console.error('Get approval history error:', error);
     res.status(500).json({
       error: 'Lỗi khi lấy lịch sử phê duyệt'
+    });
+  }
+});
+
+// Export events list (Story 5.2)
+router.get('/export/events', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { format = 'csv' } = req.query;
+
+    if (!['csv', 'json'].includes(format)) {
+      return res.status(400).json({
+        error: 'Định dạng không hỗ trợ. Chỉ hỗ trợ csv hoặc json'
+      });
+    }
+
+    const eventsData = await AdminService.exportEvents();
+
+    if (format === 'csv') {
+      const csv = AdminService.convertToCSV(eventsData, 'events');
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="events-export.csv"');
+      res.setHeader('Content-Length', Buffer.byteLength(csv, 'utf8'));
+      
+      return res.send('\uFEFF' + csv); // Add BOM for Vietnamese support
+    } else {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="events-export.json"');
+      
+      return res.json({
+        exportDate: new Date().toISOString(),
+        totalCount: eventsData.length,
+        data: eventsData
+      });
+    }
+  } catch (error) {
+    console.error('Export events error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi xuất danh sách sự kiện'
+    });
+  }
+});
+
+// Export volunteers list (Story 5.2)
+router.get('/export/volunteers', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { format = 'csv' } = req.query;
+
+    if (!['csv', 'json'].includes(format)) {
+      return res.status(400).json({
+        error: 'Định dạng không hỗ trợ. Chỉ hỗ trợ csv hoặc json'
+      });
+    }
+
+    const volunteersData = await AdminService.exportVolunteers();
+
+    if (format === 'csv') {
+      const csv = AdminService.convertToCSV(volunteersData, 'volunteers');
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="volunteers-export.csv"');
+      res.setHeader('Content-Length', Buffer.byteLength(csv, 'utf8'));
+      
+      return res.send('\uFEFF' + csv); // Add BOM for Vietnamese support
+    } else {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="volunteers-export.json"');
+      
+      return res.json({
+        exportDate: new Date().toISOString(),
+        totalCount: volunteersData.length,
+        data: volunteersData
+      });
+    }
+  } catch (error) {
+    console.error('Export volunteers error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi xuất danh sách tình nguyện viên'
     });
   }
 });
