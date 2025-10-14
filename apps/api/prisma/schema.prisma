@@ -63,12 +63,16 @@ model Event {
 }
 
 model EventParticipant {
-  id           String                    @id @default(cuid())
-  eventId      String                    @map("event_id")
-  volunteerId  String                    @map("volunteer_id")
-  status       EventParticipantStatus    @default(PENDING)
-  registeredAt DateTime                  @default(now()) @map("registered_at")
-  completedAt  DateTime?                 @map("completed_at")
+  id              String                    @id @default(cuid())
+  eventId         String                    @map("event_id")
+  volunteerId     String                    @map("volunteer_id")
+  status          EventParticipantStatus    @default(PENDING)
+  registeredAt    DateTime                  @default(now()) @map("registered_at")
+  completedAt     DateTime?                 @map("completed_at")
+  rejectionReason String?                   @map("rejection_reason")
+  rating          Int?                      // 1-5 stars
+  feedback        String?                   
+  ratedAt         DateTime?                 @map("rated_at")
 
   // Relations
   event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
