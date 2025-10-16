@@ -54,7 +54,7 @@ const generateTokens = (userId, role) => {
   const accessToken = jwt.sign(
     { userId, role },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
   );
 
   const refreshToken = jwt.sign(
@@ -64,6 +64,23 @@ const generateTokens = (userId, role) => {
   );
 
   return { accessToken, refreshToken };
+};
+
+// Parse JWT expiration to milliseconds for cookie maxAge
+const parseJWTExpiration = (expiresIn) => {
+  const match = expiresIn.match(/^(\d+)([smhd])$/);
+  if (!match) return 15 * 60 * 1000; // Default 15 minutes
+  
+  const value = parseInt(match[1]);
+  const unit = match[2];
+  
+  switch (unit) {
+    case 's': return value * 1000;
+    case 'm': return value * 60 * 1000;
+    case 'h': return value * 60 * 60 * 1000;
+    case 'd': return value * 24 * 60 * 60 * 1000;
+    default: return 15 * 60 * 1000;
+  }
 };
 
 // CSRF Token endpoint
@@ -129,26 +146,30 @@ router.post('/register', async (req, res) => {
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user.id, user.role);
 
+    // Get cookie maxAge from env variables
+    const accessTokenMaxAge = parseJWTExpiration(process.env.JWT_EXPIRES_IN || '15m');
+    const refreshTokenMaxAge = parseJWTExpiration(process.env.JWT_REFRESH_EXPIRES_IN || '7d');
+
     // Set cookies (both accessToken and token for compatibility)
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
+      maxAge: accessTokenMaxAge
     });
 
     res.cookie('token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
+      maxAge: accessTokenMaxAge
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      maxAge: refreshTokenMaxAge
     });
 
     res.status(201).json({
@@ -210,26 +231,30 @@ router.post('/login', async (req, res) => {
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user.id, user.role);
 
+    // Get cookie maxAge from env variables
+    const accessTokenMaxAge = parseJWTExpiration(process.env.JWT_EXPIRES_IN || '15m');
+    const refreshTokenMaxAge = parseJWTExpiration(process.env.JWT_REFRESH_EXPIRES_IN || '7d');
+
     // Set cookies (both accessToken and token for compatibility)
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
+      maxAge: accessTokenMaxAge
     });
 
     res.cookie('token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
+      maxAge: accessTokenMaxAge
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      maxAge: refreshTokenMaxAge
     });
 
     const userResponse = {
@@ -296,26 +321,30 @@ router.post('/refresh', async (req, res) => {
     // Generate new tokens
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user.id, user.role);
 
+    // Get cookie maxAge from env variables
+    const accessTokenMaxAge = parseJWTExpiration(process.env.JWT_EXPIRES_IN || '15m');
+    const refreshTokenMaxAge = parseJWTExpiration(process.env.JWT_REFRESH_EXPIRES_IN || '7d');
+
     // Set new cookies (both accessToken and token for compatibility)
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
+      maxAge: accessTokenMaxAge
     });
 
     res.cookie('token', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 60 * 60 * 1000 // 1 hour
+      maxAge: accessTokenMaxAge
     });
 
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      maxAge: refreshTokenMaxAge
     });
 
     res.json({

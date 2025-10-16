@@ -81,6 +81,7 @@ app.use('/api/events', (await import('./routes/events.js')).default);
 app.use('/api/admin', (await import('./routes/admin.js')).default);
 app.use('/api/users', (await import('./routes/users.js')).default);
 app.use('/api/channels', (await import('./routes/channels.js')).default);
+app.use('/api/notifications', (await import('./routes/notifications.js')).default);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
