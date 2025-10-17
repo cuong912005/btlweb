@@ -52,13 +52,13 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Quá nhiều yêu cầu từ địa chỉ IP này, vui lòng thử lại sau.'
-});
-app.use(limiter);
+//Rate limiting
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: process.env.NODE_ENV === 'development' ? 1000 : 100, // Higher limit for development
+//   message: 'Quá nhiều yêu cầu từ địa chỉ IP này, vui lòng thử lại sau.'
+// });
+// app.use(limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));

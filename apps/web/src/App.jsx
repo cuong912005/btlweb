@@ -1,23 +1,23 @@
-import { Routes, Route } from 'react-router-dom';
-import { useAuthStore } from './stores/authStore';
-import { useEffect } from 'react';
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+// No longer need EventProvider - using Zustand
+
+// Pages
+import LoginPage from './pages/auth/LoginPage';
+import RegisterPage from './pages/auth/RegisterPage';
+import DashboardPage from './pages/dashboard/DashboardPage';
+
+// Epic 2 - Event Management Pages
+import EventDiscoveryPage from './pages/event/EventDiscoveryPage';
+import EventCreationPage from './pages/event/EventCreationPage';
+import MyEventsPage from './pages/event/MyEventsPage';
 
 // Components
 import Layout from './components/layout/Layout';
 import HomePage from './pages/HomePage';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-import EventsPage from './pages/EventsPage';
-import EventDetailPage from './pages/EventDetailPage';
+import EventDetailPage from './pages/event/EventDetailPage';
 
 function App() {
-  const { user, checkAuth } = useAuthStore();
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
   return (
     <div className="App">
       <Routes>
@@ -25,11 +25,17 @@ function App() {
           <Route index element={<HomePage />} />
           <Route path="login" element={<LoginPage />} />
           <Route path="register" element={<RegisterPage />} />
-          <Route path="events" element={<EventsPage />} />
+          
+          {/* Epic 2 - Event Management Routes */}
+          <Route path="events" element={<EventDiscoveryPage />} />
+          <Route path="events/create" element={<EventCreationPage />} />
+          <Route path="events/my" element={<MyEventsPage />} />
           <Route path="events/:id" element={<EventDetailPage />} />
-          {user && (
-            <Route path="dashboard" element={<DashboardPage />} />
-          )}
+          
+          <Route path="dashboard" element={<DashboardPage />} />
+          
+          {/* Catch all route - redirect to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </div>
@@ -37,3 +43,4 @@ function App() {
 }
 
 export default App;
+

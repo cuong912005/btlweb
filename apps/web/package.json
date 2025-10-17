@@ -11,25 +11,29 @@
     "lint:fix": "eslint src --ext .js,.jsx --fix"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.8.1",
-    "zustand": "^4.4.1",
-    "axios": "^1.6.0",
-    "tailwindcss": "^3.3.0",
-    "socket.io-client": "^4.7.2",
+    "@heroicons/react": "^2.2.0",
+    "@hookform/resolvers": "^5.2.2",
+    "@volunteerhub/shared": "*",
+    "axios": "^1.12.2",
     "dompurify": "^3.0.5",
     "joi": "^17.11.0",
-    "@volunteerhub/shared": "*"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.65.0",
+    "react-router-dom": "^6.8.1",
+    "socket.io-client": "^4.7.2",
+    "tailwindcss": "^3.3.0",
+    "yup": "^1.7.1",
+    "zustand": "^4.4.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.1.0",
-    "vite": "^5.0.0",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.31",
-    "@testing-library/react": "^13.4.0",
     "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^13.4.0",
+    "@vitejs/plugin-react": "^4.1.0",
+    "autoprefixer": "^10.4.16",
     "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0"
+    "jest-environment-jsdom": "^29.7.0",
+    "postcss": "^8.4.31",
+    "vite": "^5.0.0"
   }
 }
