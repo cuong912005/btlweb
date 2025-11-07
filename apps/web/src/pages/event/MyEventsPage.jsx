@@ -3,6 +3,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { Navigate, Link } from 'react-router-dom';
 import { useEventStore } from '../../stores/eventStore';
 import EventCard from '../../components/features/events/EventCard';
+import RegistrationCard from '../../components/features/events/RegistrationCard';
 
 const MyEventsPage = () => {
   const { user } = useAuthStore();
@@ -291,7 +292,27 @@ const MyEventsPage = () => {
         {/* Content */}
         {isLoading ? (
           <LoadingSkeleton />
+        ) : activeTab === 'registered' && user?.role === 'VOLUNTEER' ? (
+          // Use RegistrationCard for volunteer's registrations
+          myRegistrations.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {myRegistrations.map((registration) => (
+                <RegistrationCard
+                  key={registration.id}
+                  registration={registration}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Chưa đăng ký sự kiện nào"
+              description="Khám phá và đăng ký tham gia các hoạt động tình nguyện thú vị"
+              actionText="Khám phá sự kiện"
+              actionLink="/events"
+            />
+          )
         ) : getCurrentEvents().length > 0 ? (
+          // Use EventCard for organizer's events
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {getCurrentEvents().map((event) => (
               <EventCard
