@@ -50,7 +50,8 @@ export const authenticateToken = async (req, res, next) => {
           email: true,
           role: true,
           firstName: true,
-          lastName: true
+          lastName: true,
+          isActive: true
         }
       });
 
@@ -58,6 +59,14 @@ export const authenticateToken = async (req, res, next) => {
         return res.status(404).json({ 
           error: 'Không tìm thấy người dùng',
           message: 'Vui lòng đăng nhập lại'
+        });
+      }
+
+      // Check if user account is active
+      if (!user.isActive) {
+        return res.status(403).json({ 
+          error: 'Tài khoản đã bị khóa',
+          message: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.'
         });
       }
 

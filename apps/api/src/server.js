@@ -8,6 +8,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import Redis from 'redis';
+import NotificationService from './services/NotificationService.js';
 
 // Load environment variables
 dotenv.config();
@@ -87,6 +88,7 @@ app.use('/api/notifications', (await import('./routes/notifications.js')).defaul
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
+  // Event channel support
   socket.on('join-event-channel', (eventId) => {
     socket.join(`event-${eventId}`);
     console.log(`User ${socket.id} joined event channel: ${eventId}`);
@@ -97,6 +99,17 @@ io.on('connection', (socket) => {
     console.log(`User ${socket.id} left event channel: ${eventId}`);
   });
 
+  // Notification support
+  socket.on('join-user-notifications', (userId) => {
+    socket.join(`user-${userId}`);
+    console.log(`User ${socket.id} joined notification room: user-${userId}`);
+  });
+
+  socket.on('leave-user-notifications', (userId) => {
+    socket.leave(`user-${userId}`);
+    console.log(`User ${socket.id} left notification room: user-${userId}`);
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
   });
@@ -104,6 +117,9 @@ io.on('connection', (socket) => {
 
 // Make io available to routes
 app.set('io', io);
+
+// Set Socket.IO instance for NotificationService
+NotificationService.setSocketIO(io);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
