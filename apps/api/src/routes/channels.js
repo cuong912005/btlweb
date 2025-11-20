@@ -152,9 +152,9 @@ router.get('/event/:eventId', authenticateToken, async (req, res) => {
   try {
     const { eventId } = req.params;
     const userId = req.user.id;
-
+    console.log('Fetching channel for event:', eventId, 'and user:', userId); 
     const result = await ChannelService.getChannelByEventId(eventId, userId);
-
+    
     res.json(result);
   } catch (error) {
     if (error.message === 'EVENT_NOT_FOUND') {
@@ -282,13 +282,14 @@ router.post('/posts/:postId/like', authenticateToken, async (req, res) => {
     // Use service to handle like/unlike
     const result = await ChannelService.togglePostLike(postId, userId);
 
-    // Emit real-time event
+    // Emit real-time event to all users in channel
     const io = req.app.get('io');
     io.to(`event-${result.eventId}`).emit('post-liked', {
       postId: result.postId,
       userId,
       action: result.isLiked ? 'liked' : 'unliked',
-      likeCount: result.likeCount
+      likeCount: result.likeCount,
+      isLiked: result.isLiked
     });
 
     res.json({

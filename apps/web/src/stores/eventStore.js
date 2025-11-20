@@ -26,7 +26,9 @@ const useEventStore = create((set, get) => ({
     sortOrder: 'asc',
     page: 1,
     limit: 12,
-    availability: 'all'
+    availability: 'all',
+    eventStatus: 'all',
+    registrationStatus: 'all'
   },
   pagination: {
     currentPage: 1,
@@ -156,12 +158,25 @@ const useEventStore = create((set, get) => ({
   fetchMyRegistrations: async () => {
     try {
       set({ isLoading: true, error: null });
-      const response = await api.get('/events/my-registrations');
+      // Use the richer participation-history endpoint which includes rating, ratedAt and canRate
+      // so UI components (ParticipationHistory modal) can correctly determine rating eligibility.
+      const response = await api.get('/events/volunteers/participation-history');
+      const eventsData = response.data?.events || {};
+
+      // Flatten into a single list while preserving ordering (completed + upcoming + pending + rejected)
+      const flattened = [
+        ...(eventsData.completed || []),
+        ...(eventsData.upcoming || []),
+        ...(eventsData.pending || []),
+        ...(eventsData.rejected || [])
+      ];
+
       set({ 
-        myRegistrations: response.data.registrations || [],
+        myRegistrations: flattened,
         isLoading: false 
       });
-      return response.data.registrations || [];
+
+      return flattened;
     } catch (error) {
       console.error('Error fetching my registrations:', error);
       set({ 
@@ -176,8 +191,21 @@ const useEventStore = create((set, get) => ({
     try {
       const response = await api.post(`/events/${eventId}/register`);
       
-      // Refresh events to update registration count
-      await get().fetchEvents();
+      // Refresh event detail if it's the selected event
+      if (get().selectedEvent?.id === eventId) {
+        try {
+          await get().fetchEventDetail(eventId);
+        } catch (err) {
+          console.error('Error refreshing event detail:', err);
+        }
+      }
+      
+      // Refresh events list with current filters
+      try {
+        await get().fetchEvents(get().filters);
+      } catch (err) {
+        console.error('Error refreshing events list:', err);
+      }
       
       return { success: true, data: response.data };
     } catch (error) {

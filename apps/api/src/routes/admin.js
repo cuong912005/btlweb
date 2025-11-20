@@ -5,6 +5,23 @@ import AdminService from '../services/AdminService.js';
 
 const router = express.Router();
 
+// Get admin dashboard statistics
+router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const stats = await AdminService.getDashboardStats();
+
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    console.error('Get admin stats error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi lấy thống kê'
+    });
+  }
+});
+
 // Validation schema for event approval/rejection
 const eventApprovalSchema = Joi.object({
   action: Joi.string().valid('approve', 'reject').required().messages({
@@ -237,6 +254,93 @@ router.get('/export/volunteers', authenticateToken, requireAdmin, async (req, re
     console.error('Export volunteers error:', error);
     res.status(500).json({
       error: 'Lỗi khi xuất danh sách tình nguyện viên'
+    });
+  }
+});
+
+// User Management: Get all users with filters
+router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, role, status, search } = req.query;
+    
+    const result = await AdminService.getUsers(page, limit, role, status, search);
+
+    res.json({
+      success: true,
+      message: 'Danh sách người dùng',
+      ...result
+    });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi lấy danh sách người dùng'
+    });
+  }
+});
+
+// User Management: Get user details
+router.get('/users/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await AdminService.getUserDetails(userId);
+
+    res.json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    console.error('Get user details error:', error);
+    
+    if (error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy người dùng'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi lấy thông tin người dùng'
+    });
+  }
+});
+
+// User Management: Toggle user active status (lock/unlock)
+router.patch('/users/:userId/toggle-status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const result = await AdminService.toggleUserStatus(userId, req.user.id);
+
+    res.json({
+      success: true,
+      message: result.action === 'locked' 
+        ? 'Tài khoản đã bị khóa thành công' 
+        : 'Tài khoản đã được mở khóa thành công',
+      user: result
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    
+    if (error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy người dùng'
+      });
+    }
+    
+    if (error.message === 'CANNOT_LOCK_ADMIN') {
+      return res.status(403).json({
+        error: 'Không thể khóa tài khoản Admin'
+      });
+    }
+    
+    if (error.message === 'CANNOT_LOCK_SELF') {
+      return res.status(403).json({
+        error: 'Không thể khóa tài khoản của chính mình'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi thay đổi trạng thái tài khoản'
     });
   }
 });
