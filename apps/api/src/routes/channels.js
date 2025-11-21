@@ -147,7 +147,7 @@ router.delete('/:channelId/images/:publicId', authenticateToken, checkChannelAcc
   }
 });
 
-// Get event channel by event ID (Story 2.3 - Channel accessibility)
+// Get event channel by event ID 
 router.get('/event/:eventId', authenticateToken, async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -187,7 +187,7 @@ router.get('/event/:eventId', authenticateToken, async (req, res) => {
   }
 });
 
-// Get posts in channel (Story 2.3 - Basic channel structure)
+// Get posts in channel
 router.get('/:channelId/posts', authenticateToken, checkChannelAccess, async (req, res) => {
   try {
     const { channelId } = req.params;
@@ -214,7 +214,7 @@ router.get('/:channelId/posts', authenticateToken, checkChannelAccess, async (re
   }
 });
 
-// Create new post in channel (Story 2.3 - Basic functionality)
+// Create new post in channel
 router.post('/:channelId/posts', authenticateToken, checkChannelAccess, async (req, res) => {
   try {
     const { channelId } = req.params;
@@ -273,7 +273,7 @@ router.post('/:channelId/posts', authenticateToken, checkChannelAccess, async (r
   }
 });
 
-// Like/unlike a post (Story 2.3 - Basic functionality)
+// Like/unlike a post
 router.post('/posts/:postId/like', authenticateToken, async (req, res) => {
   try {
     const { postId } = req.params;
@@ -319,7 +319,7 @@ router.post('/posts/:postId/like', authenticateToken, async (req, res) => {
   }
 });
 
-// Add comment to post (Story 2.3 - Basic functionality)
+// Add comment to post 
 router.post('/posts/:postId/comments', authenticateToken, async (req, res) => {
   try {
     const { postId } = req.params;

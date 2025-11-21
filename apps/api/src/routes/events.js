@@ -45,7 +45,7 @@ const createEventSchema = Joi.object({
   })
 });
 
-// Create new event (Story 2.1) - Organizer only
+// Create new event - Organizer only
 router.post('/', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     // Validate input
@@ -104,7 +104,7 @@ router.get('/categories', (req, res) => {
   });
 });
 
-// Get user's registrations (volunteer only) - MOVED UP to avoid conflict
+// Get user's registrations (volunteer only) 
 router.get('/my-registrations', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
   try {
     const { status } = req.query;
@@ -125,7 +125,7 @@ router.get('/my-registrations', authenticateToken, requireRole(['VOLUNTEER']), a
   }
 });
 
-// Get volunteer's participation history and statistics (Story 3.4) - MOVED UP
+// Get volunteer's participation history and statistics 
 router.get('/volunteers/participation-history', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
   try {
     const volunteerId = req.user.id;
@@ -144,7 +144,7 @@ router.get('/volunteers/participation-history', authenticateToken, requireRole([
   }
 });
 
-// Export volunteer's participation data (Story 3.4) - MOVED UP
+// Export volunteer's participation data 
 router.get('/volunteers/participation-history/export', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
   try {
     const { format = 'json' } = req.query;
@@ -185,7 +185,7 @@ router.get('/volunteers/participation-history/export', authenticateToken, requir
   }
 });
 
-// Get organizer's events - MOVED UP
+// Get organizer's events (organizer only)
 router.get('/my-events', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { status } = req.query;
@@ -206,7 +206,7 @@ router.get('/my-events', authenticateToken, requireOrganizerOrAdmin, async (req,
   }
 });
 
-// Get organizer's events with participant summaries (organizer only) - MOVED UP
+// Get organizer's events with participant summaries (organizer only) 
 router.get('/my-events-summary', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { status } = req.query;
@@ -378,7 +378,7 @@ router.get('/:eventId/participants', authenticateToken, requireOrganizerOrAdmin,
   }
 });
 
-// Update participant status (organizer only) - Enhanced with reason and completion marking
+// Update participant status (organizer only) 
 router.patch('/participants/:participantId/status', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { participantId } = req.params;
@@ -443,7 +443,7 @@ router.patch('/participants/:participantId/status', authenticateToken, requireOr
   }
 });
 
-// Bulk update participant status (organizer only) - Story 3.3 with completion marking
+// Bulk update participant status (organizer only) 
 router.patch('/participants/bulk-status', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { participantIds, status, reason, isCompleted } = req.body;
@@ -501,7 +501,7 @@ router.patch('/participants/bulk-status', authenticateToken, requireOrganizerOrA
   }
 });
 
-// Export event participants (organizer only) - Story 3.3
+// Export event participants (organizer only) 
 router.get('/:eventId/participants/export', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -549,7 +549,7 @@ router.get('/:eventId/participants/export', authenticateToken, requireOrganizerO
   }
 });
 
-// Rate and provide feedback for completed event (Story 3.4)
+// Rate and provide feedback for completed event 
 router.post('/:eventId/rate', authenticateToken, requireRole(['VOLUNTEER']), async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -602,7 +602,7 @@ router.post('/:eventId/rate', authenticateToken, requireRole(['VOLUNTEER']), asy
   }
 });
 
-// Get event feedback and ratings (organizer only) - Story 3.4
+// Get event feedback and ratings (organizer only) 
 router.get('/:eventId/feedback', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -655,7 +655,7 @@ router.get('/:eventId/public-feedback', async (req, res) => {
   }
 });
 
-// List events with enhanced filtering and search (Story 3.1)
+// List events with enhanced filtering and search 
 router.get('/', async (req, res) => {
   try {
     const { 

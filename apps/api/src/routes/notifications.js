@@ -24,7 +24,7 @@ const subscriptionSchema = Joi.object({
   })
 });
 
-// Story 4.2.1: Subscribe to push notifications
+//  Subscribe to push notifications
 router.post('/subscribe', authenticateToken, async (req, res) => {
   try {
     const { error, value } = subscriptionSchema.validate(req.body);
@@ -94,7 +94,7 @@ router.delete('/unsubscribe', authenticateToken, async (req, res) => {
   }
 });
 
-// Story 4.2.6: Get notification history
+// Get notification history
 router.get('/history', authenticateToken, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
