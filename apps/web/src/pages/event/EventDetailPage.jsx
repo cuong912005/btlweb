@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEventStore } from '../../stores/eventStore';
 import { useAuthStore } from '../../stores/authStore';
 import EventRating from '../../components/features/events/EventRating';
+import { canRateParticipation } from '../../utils/canRate';
 import api from '../../utils/api';
 import { 
   CheckCircleIcon,
@@ -12,12 +13,13 @@ import {
   StarIcon
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
+import { showSuccess, showError, showWarning } from '../../utils/toast';
 
 function EventDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { events, registerForEvent, fetchEventDetail, rateEvent, isLoading, error } = useEventStore();
-  const { user, token } = useAuthStore();
+  const { user } = useAuthStore();
   
   const [event, setEvent] = useState(null);
   const [eventRatings, setEventRatings] = useState(null);
@@ -25,8 +27,6 @@ function EventDetailPage() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isLoadingRatings, setIsLoadingRatings] = useState(false);
   const [showRegistrationModal, setShowRegistrationModal] = useState(false);
-  const [registrationResult, setRegistrationResult] = useState(null);
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
 
   // Fetch event ratings and feedback
@@ -84,8 +84,9 @@ function EventDetailPage() {
   };
 
   const handleRegister = () => {
-    if (!token) {
-      navigate('/login');
+    if (!user) {
+      showWarning('Vui lòng đăng nhập để đăng ký tham gia sự kiện');
+      navigate('/login', { state: { from: `/events/${id}` } });
       return;
     }
     setShowRegistrationModal(true);
@@ -93,38 +94,27 @@ function EventDetailPage() {
 
   const handleConfirmRegistration = async () => {
     setIsRegistering(true);
-    setRegistrationResult(null);
     
     try {
       const result = await registerForEvent(event.id);
       
       if (result.success) {
-        setRegistrationResult({
-          success: true,
-          message: 'Đăng ký thành công! Vui lòng chờ phê duyệt từ người tổ chức.'
-        });
-        setShowSuccessMessage(true);
+        showSuccess('Đăng ký thành công! Vui lòng chờ phê duyệt từ người tổ chức.');
         
-        // Refresh event detail to update participant count
-        const updatedEvent = await fetchEventDetail(id);
-        setEvent(updatedEvent);
-        
-        // Auto-hide success message after 5 seconds
-        setTimeout(() => {
-          setShowSuccessMessage(false);
-        }, 5000);
+        // Refresh event detail to update participant count and registration status
+        try {
+          const updatedEvent = await fetchEventDetail(id);
+          setEvent(updatedEvent);
+        } catch (err) {
+          console.error('Error refreshing event:', err);
+          // Even if refresh fails, registration was successful
+        }
       } else {
-        setRegistrationResult({
-          success: false,
-          message: result.error || 'Có lỗi xảy ra khi đăng ký'
-        });
+        showError(result.error || 'Có lỗi xảy ra khi đăng ký');
       }
     } catch (error) {
       console.error('Lỗi đăng ký sự kiện:', error);
-      setRegistrationResult({
-        success: false,
-        message: 'Có lỗi xảy ra khi đăng ký. Vui lòng thử lại sau.'
-      });
+      showError('Có lỗi xảy ra khi đăng ký. Vui lòng thử lại sau.');
     } finally {
       setIsRegistering(false);
       setShowRegistrationModal(false);
@@ -136,41 +126,26 @@ function EventDetailPage() {
   };
 
   const handleGoBack = () => {
-    navigate('/events');
+    // Go back to previous page, or /events if no history
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/events');
+    }
   };
 
-  const handleRatingSuccess = async (eventId, rating, feedback) => {
+  const handleRatingSuccess = async () => {
     try {
-      const result = await rateEvent(eventId, rating, feedback);
-      setShowRatingModal(false);
+      showSuccess('Cảm ơn bạn đã đánh giá sự kiện!');
       
-      if (result.success) {
-        // Refresh event detail to show updated rating
-        const updatedEvent = await fetchEventDetail(id);
-        setEvent(updatedEvent);
-        
-        // Show success message
-        setRegistrationResult({
-          success: true,
-          message: 'Cảm ơn bạn đã đánh giá sự kiện!'
-        });
-        
-        // Auto-hide success message after 3 seconds
-        setTimeout(() => {
-          setRegistrationResult(null);
-        }, 3000);
-      } else {
-        setRegistrationResult({
-          success: false,
-          message: result.error || 'Có lỗi khi đánh giá sự kiện'
-        });
-      }
+      // Refresh event detail to show updated rating
+      const updatedEvent = await fetchEventDetail(id);
+      setEvent(updatedEvent);
+      
+      // Reload ratings/feedback
+      await loadEventRatings();
     } catch (err) {
-      console.error('Error handling rating success:', err);
-      setRegistrationResult({
-        success: false,
-        message: 'Có lỗi khi đánh giá sự kiện'
-      });
+      console.error('Error refreshing after rating:', err);
     }
   };
 
@@ -192,7 +167,7 @@ function EventDetailPage() {
           <p className="text-red-600">{error}</p>
           <button 
             onClick={handleGoBack}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="mt-4 px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
           >
             Quay lại danh sách sự kiện
           </button>
@@ -209,7 +184,7 @@ function EventDetailPage() {
           <p className="text-gray-600 mb-4">Sự kiện bạn tìm kiếm không tồn tại hoặc đã bị xóa.</p>
           <button 
             onClick={handleGoBack}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
           >
             Quay lại danh sách sự kiện
           </button>
@@ -218,83 +193,204 @@ function EventDetailPage() {
     );
   }
 
-  const userParticipation = event.participants?.find(p => p.volunteer.id === user?.id);
+  // Use userRegistration if available (backend attaches full participant record there),
+  // otherwise fallback to participants list. userRegistration contains rating/ratedAt fields.
+  const userParticipation = event.userRegistration || event.participants?.find(p => p.volunteer?.id === user?.id);
   const isRegistered = !!userParticipation;
   const isApproved = userParticipation?.status === 'APPROVED';
   const isRejected = userParticipation?.status === 'REJECTED';
+  const isCompleted = userParticipation?.status === 'COMPLETED';
   const isOrganizer = event.organizer?.id === user?.id || event.organizerId === user?.id;
-  const canRegister = !isRegistered && !isOrganizer && event.status === 'APPROVED';
+  
+  // Check if event has expired
+  const now = new Date();
+  const eventEndDate = new Date(event.endDate);
+  const isExpired = eventEndDate < now;
+  
+  const canRegister = !isRegistered && !isOrganizer && event.status === 'APPROVED' && !isExpired;
+  // Only allow channel access for organizer and approved participants (not completed)
   const canAccessChannel = (isOrganizer || isApproved) && event.status === 'APPROVED';
-  const participantCount = event.participants?.length || 0;
+  // Use participantCount from backend (already filtered for APPROVED only)
+  // Or count manually if participants array is provided
+  const participantCount = event.participantCount ?? 
+    event.participants?.filter(p => p.status === 'APPROVED' || p.status === 'COMPLETED').length ?? 0;
+
+  // Helper function to get organizer display name
+  const getOrganizerName = () => {
+    console.log('Organizer data:', event.organizer); // Debug log
+    
+    // Try to get full name from firstName and lastName
+    if (event.organizer?.firstName && event.organizer?.lastName) {
+      return `${event.organizer.firstName} ${event.organizer.lastName}`;
+    }
+    
+    // Try event.organizer.name field
+    if (event.organizer?.name) {
+      return event.organizer.name;
+    }
+    
+    // Try organizerName field (legacy)
+    if (event.organizerName) {
+      return event.organizerName;
+    }
+    
+    // Extract name from email if available
+    if (event.organizer?.email) {
+      const emailName = event.organizer.email.split('@')[0];
+      // Capitalize first letter and replace dots/underscores with spaces
+      return emailName
+        .replace(/[._]/g, ' ')
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
+    
+    return 'Đang cập nhật';
+  };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-cyan-50">
       {/* Back button */}
-      <button 
-        onClick={handleGoBack}
-        className="mb-6 flex items-center text-blue-600 hover:text-blue-800"
-      >
-        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        Quay lại danh sách sự kiện
-      </button>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <button 
+          onClick={handleGoBack}
+          className="flex items-center text-teal-600 hover:text-teal-700 font-medium transition-colors group"
+        >
+          <svg className="w-5 h-5 mr-2 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Quay lại danh sách sự kiện
+        </button>
+      </div>
 
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        {/* Event header */}
-        <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-6">
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">{event.title}</h1>
-              <div className="flex items-center text-blue-100">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                {event.location}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+        {/* Hero Banner */}
+        <div className="bg-white rounded-3xl shadow-2xl overflow-hidden mb-8">
+          {/* Header with gradient */}
+          <div className="relative bg-gradient-to-r from-teal-600 via-cyan-600 to-teal-700 p-8 md:p-12">
+            {/* Background pattern */}
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute inset-0" style={{backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '20px 20px'}}></div>
+            </div>
+            
+            <div className="relative">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-6">
+                <div className="flex-1">
+                  {/* Category badge */}
+                  <div className="inline-flex items-center px-4 py-2 bg-white/20 backdrop-blur-sm rounded-full mb-4">
+                    <svg className="w-4 h-4 mr-2 text-amber-300" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                    <span className="text-white text-sm font-semibold">{event.category}</span>
+                  </div>
+
+                  <h1 className="text-3xl md:text-4xl lg:text-5xl font-black text-white mb-4 leading-tight">
+                    {event.title}
+                  </h1>
+                  
+                  {/* Meta info */}
+                  <div className="flex flex-wrap gap-4 text-white/90">
+                    <div className="flex items-center">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span className="font-medium">{event.location}</span>
+                    </div>
+                    <div className="flex items-center">
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <span className="font-medium">{getOrganizerName()}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Status badge */}
+                <div>
+                  {!isOrganizer && isRegistered ? (
+                    <span className={`inline-flex items-center px-6 py-3 rounded-2xl text-sm font-bold shadow-lg ${
+                      isCompleted ? 'bg-gray-500 text-white' :
+                      isRejected ? 'bg-red-500 text-white' :
+                      'bg-emerald-500 text-white'
+                    }`}>
+                      {isCompleted ? '✓ Đã hoàn thành' : 
+                       isRejected ? '✗ Đã bị từ chối' : 
+                       '✓ Đã đăng ký'}
+                    </span>
+                  ) : (
+                    <span className={`inline-flex items-center px-6 py-3 rounded-2xl text-sm font-bold shadow-lg ${
+                      event.status === 'APPROVED' ? 'bg-emerald-500 text-white' :
+                      event.status === 'PENDING' ? 'bg-amber-500 text-white' :
+                      event.status === 'REJECTED' ? 'bg-red-500 text-white' :
+                      event.status === 'COMPLETED' ? 'bg-gray-500 text-white' :
+                      'bg-gray-500 text-white'
+                    }`}>
+                      {event.status === 'APPROVED' ? '✓ Đã phê duyệt' : 
+                       event.status === 'PENDING' ? '⏳ Chờ phê duyệt' :
+                       event.status === 'REJECTED' ? '✗ Đã từ chối' :
+                       event.status === 'COMPLETED' ? '🏁 Đã kết thúc' : 'Không xác định'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Quick info cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+                  <div className="flex items-center text-white">
+                    <div className="bg-white/20 rounded-xl p-3 mr-3">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-xs text-white/70 font-medium">Thời gian</div>
+                      <div className="text-sm font-bold">
+                        {new Date(event.startDate).toLocaleDateString('vi-VN')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+                  <div className="flex items-center text-white">
+                    <div className="bg-white/20 rounded-xl p-3 mr-3">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-xs text-white/70 font-medium">Giờ bắt đầu</div>
+                      <div className="text-sm font-bold">
+                        {new Date(event.startDate).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/20">
+                  <div className="flex items-center text-white">
+                    <div className="bg-white/20 rounded-xl p-3 mr-3">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-xs text-white/70 font-medium">Người tham gia</div>
+                      <div className="text-sm font-bold">
+                        {participantCount} {event.capacity ? `/ ${event.capacity}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="text-right">
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                event.status === 'APPROVED' ? 'bg-green-500 text-white' :
-                event.status === 'PENDING' ? 'bg-yellow-500 text-white' :
-                event.status === 'REJECTED' ? 'bg-red-500 text-white' :
-                event.status === 'COMPLETED' ? 'bg-gray-500 text-white' :
-                'bg-gray-500 text-white'
-              }`}>
-                {event.status === 'APPROVED' ? 'Đã phê duyệt' : 
-                 event.status === 'PENDING' ? 'Chờ phê duyệt' :
-                 event.status === 'REJECTED' ? 'Đã từ chối' :
-                 event.status === 'COMPLETED' ? 'Đã kết thúc' : 'Không xác định'}
-              </span>
-            </div>
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div className="flex items-center">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              {new Date(event.startDate).toLocaleDateString('vi-VN')}
-            </div>
-            <div className="flex items-center">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {new Date(event.startDate).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-            </div>
-            <div className="flex items-center">
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-              {participantCount} người tham gia
-            </div>
-          </div>
-        </div>
 
-        {/* Event content */}
-        <div className="p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Event content */}
+          <div className="p-6 md:p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Main content */}
             <div className="lg:col-span-2">
               <div className="mb-6">
@@ -428,14 +524,14 @@ function EventDetailPage() {
                 <div className="space-y-3 text-sm">
                   <div>
                     <span className="font-medium text-gray-600">Danh mục:</span>
-                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                    <span className="ml-2 px-2 py-1 bg-teal-100 text-teal-800 rounded text-xs">
                       {event.category}
                     </span>
                   </div>
                   
                   <div>
                     <span className="font-medium text-gray-600">Người tổ chức:</span>
-                    <div className="mt-1">{event.organizerName || 'Đang cập nhật'}</div>
+                    <div className="mt-1">{getOrganizerName()}</div>
                   </div>
                   
                   <div>
@@ -457,10 +553,20 @@ function EventDetailPage() {
 
               {/* Action buttons */}
               <div className="space-y-3">
+                {/* Show expired notice if event has ended */}
+                {isExpired && !isOrganizer && (
+                  <div className="w-full px-4 py-3 bg-red-100 border-2 border-red-300 text-red-800 rounded-lg text-center font-bold flex items-center justify-center">
+                    <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                    Sự kiện đã kết thúc
+                  </div>
+                )}
+                
                 {canAccessChannel && (
                   <button
                     onClick={() => navigate(`/events/${id}/channel`)}
-                    className="w-full px-4 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 font-medium flex items-center justify-center"
+                    className="w-full px-4 py-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 font-medium flex items-center justify-center"
                   >
                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -479,7 +585,7 @@ function EventDetailPage() {
                     </button>
                     <button
                       onClick={() => navigate(`/events/${id}/participants`)}
-                      className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium flex items-center justify-center"
+                      className="w-full px-4 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center justify-center"
                     >
                       <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -493,7 +599,7 @@ function EventDetailPage() {
                   <button
                     onClick={handleRegister}
                     disabled={isRegistering}
-                    className="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 font-medium"
+                    className="w-full px-4 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:bg-gray-400 font-medium"
                   >
                     {isRegistering ? 'Đang đăng ký...' : 'Đăng ký tham gia'}
                   </button>
@@ -501,11 +607,18 @@ function EventDetailPage() {
                 
                 {isRegistered && !isOrganizer && !isRejected && (
                   <div className="space-y-2">
-                    <div className="w-full px-4 py-3 bg-green-100 text-green-800 rounded-lg text-center font-medium">
-                      ✓ Đã đăng ký tham gia
-                    </div>
+                    {/* Show completion status if completed, otherwise show registered status */}
+                    {isCompleted ? (
+                      <div className="w-full px-4 py-3 bg-gray-100 text-gray-800 rounded-lg text-center font-medium">
+                        ✓ Đã hoàn thành
+                      </div>
+                    ) : (
+                      <div className="w-full px-4 py-3 bg-green-100 text-green-800 rounded-lg text-center font-medium">
+                        ✓ Đã đăng ký tham gia
+                      </div>
+                    )}
                     {/* Show rating button if participation is completed and not rated yet */}
-                    {isApproved && userParticipation?.status === 'COMPLETED' && !userParticipation?.rating && (
+                    {isCompleted && canRateParticipation(userParticipation) && (
                       <button
                         onClick={() => setShowRatingModal(true)}
                         className="w-full px-4 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 font-medium flex items-center justify-center"
@@ -516,7 +629,7 @@ function EventDetailPage() {
                     )}
 
                     {/* Show rating if already rated */}
-                    {isApproved && userParticipation?.rating && (
+                    {isCompleted && !canRateParticipation(userParticipation) && (
                       <div className="w-full px-4 py-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                         <div className="flex items-center justify-center space-x-2 mb-2">
                           <span className="text-sm font-medium text-gray-700">Đánh giá của bạn:</span>
@@ -571,6 +684,7 @@ function EventDetailPage() {
               </div>
             </div>
           </div>
+          </div>
         </div>
       </div>
 
@@ -579,8 +693,8 @@ function EventDetailPage() {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100">
-                <InformationCircleIcon className="h-6 w-6 text-indigo-600" />
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-teal-100">
+                <InformationCircleIcon className="h-6 w-6 text-teal-600" />
               </div>
               <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
                 Xác nhận đăng ký
@@ -594,8 +708,8 @@ function EventDetailPage() {
                   <p>📅 <strong>Thời gian:</strong> {new Date(event?.startDate).toLocaleDateString('vi-VN')}</p>
                   <p>👥 <strong>Người tham gia:</strong> {participantCount} / {event?.capacity || '∞'}</p>
                 </div>
-                <div className="mt-4 p-3 bg-blue-50 rounded-md">
-                  <div className="text-xs text-blue-800">
+                <div className="mt-4 p-3 bg-teal-50 rounded-md">
+                  <div className="text-xs text-teal-800">
                     <p><strong>Lưu ý:</strong></p>
                     <ul className="mt-1 space-y-1 list-disc list-inside">
                       <li>Đăng ký sẽ được xem xét bởi người tổ chức</li>
@@ -617,67 +731,11 @@ function EventDetailPage() {
                   <button
                     onClick={handleConfirmRegistration}
                     disabled={isRegistering}
-                    className="px-4 py-2 bg-indigo-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+                    className="px-4 py-2 bg-teal-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-300 disabled:opacity-50"
                   >
                     {isRegistering ? 'Đang đăng ký...' : 'Xác nhận đăng ký'}
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Success/Error Notification */}
-      {registrationResult && (
-        <div className={`fixed top-4 right-4 z-50 max-w-sm w-full ${
-          registrationResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-        } border rounded-lg shadow-lg`}>
-          <div className="p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                {registrationResult.success ? (
-                  <CheckCircleIcon className="h-5 w-5 text-green-400" />
-                ) : (
-                  <ExclamationTriangleIcon className="h-5 w-5 text-red-400" />
-                )}
-              </div>
-              <div className="ml-3 flex-1">
-                <h3 className={`text-sm font-medium ${
-                  registrationResult.success ? 'text-green-800' : 'text-red-800'
-                }`}>
-                  {registrationResult.success ? 
-                    (registrationResult.message.includes('đánh giá') ? 'Đánh giá thành công!' : 'Đăng ký thành công!') : 
-                    'Thao tác thất bại'
-                  }
-                </h3>
-                <p className={`mt-1 text-sm ${
-                  registrationResult.success ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {registrationResult.message}
-                </p>
-                {registrationResult.success && (
-                  <div className="mt-3">
-                    <button
-                      onClick={() => navigate('/events/my')}
-                      className="text-sm font-medium text-green-800 hover:text-green-900 underline"
-                    >
-                      Xem đăng ký của tôi
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div className="ml-4 flex-shrink-0 flex">
-                <button
-                  onClick={() => setRegistrationResult(null)}
-                  className={`rounded-md inline-flex ${
-                    registrationResult.success ? 'text-green-400 hover:text-green-500' : 'text-red-400 hover:text-red-500'
-                  } focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                    registrationResult.success ? 'focus:ring-green-500' : 'focus:ring-red-500'
-                  }`}
-                >
-                  <XMarkIcon className="h-5 w-5" />
-                </button>
               </div>
             </div>
           </div>
