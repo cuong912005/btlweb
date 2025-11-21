@@ -214,16 +214,31 @@ router.post('/logout', async (req, res) => {
       await AuthService.logoutUser(userId, refreshToken);
     }
     
-    res.clearCookie('accessToken');
-    res.clearCookie('token');
-    res.clearCookie('refreshToken');
+    // Clear cookies with same options as when they were set
+    const clearOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      path: '/'
+    };
+    
+    res.clearCookie('accessToken', clearOptions);
+    res.clearCookie('token', clearOptions);
+    res.clearCookie('refreshToken', clearOptions);
     res.json({ message: 'Đăng xuất thành công' });
   } catch (error) {
     console.error('Logout error:', error);
     // Still clear cookies even if Redis fails
-    res.clearCookie('accessToken');
-    res.clearCookie('token');
-    res.clearCookie('refreshToken');
+    const clearOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      path: '/'
+    };
+    
+    res.clearCookie('accessToken', clearOptions);
+    res.clearCookie('token', clearOptions);
+    res.clearCookie('refreshToken', clearOptions);
     res.json({ message: 'Đăng xuất thành công' });
   }
 });

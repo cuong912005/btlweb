@@ -127,12 +127,22 @@ const useAuthStore = create((set, get) => ({
       // Stop token refresh
       get().stopTokenRefresh();
       
+      // Clear state first
+      set({ user: null, loading: false, error: null });
+      
+      // Call backend to clear cookies
       await apiClient.post('/auth/logout');
+      
+      // Clear any local storage if used
+      localStorage.removeItem('user');
+      
     } catch (error) {
       console.error('Logout error:', error);
-    } finally {
+      // Even if backend fails, still clear frontend state
       set({ user: null, loading: false, error: null });
-      // Redirect to login page after logout
+      localStorage.removeItem('user');
+    } finally {
+      // Always redirect to login page after logout
       window.location.href = '/login';
     }
   },
