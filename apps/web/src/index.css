@@ -55,3 +55,79 @@ body {
   font-feature-settings: "kern" 1, "liga" 1;
   text-rendering: optimizeLegibility;
 }
+
+/* Custom animations for HomePage */
+@keyframes zoom {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  33% {
+    transform: translateY(-20px) rotate(3deg);
+  }
+  66% {
+    transform: translateY(-10px) rotate(-3deg);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 20px rgba(253, 224, 71, 0.6)) drop-shadow(0 0 40px rgba(253, 224, 71, 0.4));
+    background-position: 0% 50%;
+  }
+  50% {
+    filter: drop-shadow(0 0 30px rgba(253, 224, 71, 0.9)) drop-shadow(0 0 60px rgba(253, 224, 71, 0.6));
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes parallax {
+  0% {
+    transform: translateY(0px);
+  }
+  100% {
+    transform: translateY(-50px);
+  }
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 0;
+    transform: translateY(100px) scale(0);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100px) scale(1);
+  }
+}
+
+@keyframes backgroundMove {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 60px 60px;
+  }
+}
