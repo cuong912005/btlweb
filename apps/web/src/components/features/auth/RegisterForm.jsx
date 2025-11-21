@@ -49,7 +49,7 @@ const registerSchema = yup.object().shape({
 });
 
 const RegisterForm = () => {
-  const { register: registerUser, loading, error, clearError } = useAuthStore();
+  const { user, register: registerUser, loading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
 
@@ -60,6 +60,13 @@ const RegisterForm = () => {
   } = useForm({
     resolver: yupResolver(registerSchema)
   });
+
+  // Redirect to dashboard if already logged in
+  React.useEffect(() => {
+    if (user) {
+      navigate('/', { replace: true });
+    }
+  }, [user, navigate]);
 
   const onSubmit = async (data) => {
     try {
@@ -86,46 +93,49 @@ const RegisterForm = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <div className="mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-indigo-100">
-            <svg 
-              className="h-6 w-6 text-indigo-600" 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" 
-              />
-            </svg>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-teal-50 via-cyan-50 to-blue-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full">
+        {/* Card Container with Gradient Border */}
+        <div className="bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl p-8 border-2 border-teal-100">
+          <div>
+            {/* Gradient Logo */}
+            <div className="mx-auto h-16 w-16 flex items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-xl transform hover:scale-110 transition-transform">
+              <svg 
+                className="h-8 w-8 text-white" 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" 
+                />
+              </svg>
+            </div>
+            <h2 className="mt-6 text-center text-3xl font-extrabold bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">
+              Đăng ký tài khoản VolunteerHub
+            </h2>
+            <p className="mt-3 text-center text-sm text-gray-600">
+              Đã có tài khoản?{' '}
+              <Link
+                to="/login"
+                className="font-semibold text-teal-600 hover:text-teal-700 transition-colors"
+              >
+                Đăng nhập ngay
+              </Link>
+            </p>
           </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Đăng ký tài khoản VolunteerHub
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Đã có tài khoản?{' '}
-            <Link
-              to="/login"
-              className="font-medium text-indigo-600 hover:text-indigo-500"
-            >
-              Đăng nhập ngay
-            </Link>
-          </p>
-        </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
           {/* Global Error Message */}
           {error && (
-            <div className="rounded-md bg-red-50 p-4">
+            <div className="rounded-2xl bg-gradient-to-r from-red-50 to-pink-50 p-4 border border-red-200 shadow-sm">
               <div className="flex">
                 <div className="flex-shrink-0">
                   <svg 
-                    className="h-5 w-5 text-red-400" 
+                    className="h-5 w-5 text-red-500" 
                     viewBox="0 0 20 20" 
                     fill="currentColor"
                   >
@@ -137,7 +147,7 @@ const RegisterForm = () => {
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">
+                  <h3 className="text-sm font-semibold text-red-800">
                     Đăng ký thất bại
                   </h3>
                   <div className="mt-2 text-sm text-red-700">
@@ -160,7 +170,7 @@ const RegisterForm = () => {
             {/* Name Fields */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="firstName" className="block text-sm font-semibold text-gray-700 mb-2">
                   Tên
                 </label>
                 <div className="mt-1">
@@ -168,19 +178,19 @@ const RegisterForm = () => {
                     {...register('firstName')}
                     type="text"
                     autoComplete="given-name"
-                    className={`appearance-none relative block w-full px-3 py-2 border ${
-                      errors.firstName ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                    className={`appearance-none relative block w-full px-4 py-3 border-2 ${
+                      errors.firstName ? 'border-red-300' : 'border-gray-200'
+                    } placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all sm:text-sm`}
                     placeholder="Tên"
                   />
                   {errors.firstName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.firstName.message}</p>
+                    <p className="mt-2 text-xs text-red-600">{errors.firstName.message}</p>
                   )}
                 </div>
               </div>
 
               <div>
-                <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="lastName" className="block text-sm font-semibold text-gray-700 mb-2">
                   Họ
                 </label>
                 <div className="mt-1">
@@ -188,13 +198,13 @@ const RegisterForm = () => {
                     {...register('lastName')}
                     type="text"
                     autoComplete="family-name"
-                    className={`appearance-none relative block w-full px-3 py-2 border ${
-                      errors.lastName ? 'border-red-300' : 'border-gray-300'
-                    } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                    className={`appearance-none relative block w-full px-4 py-3 border-2 ${
+                      errors.lastName ? 'border-red-300' : 'border-gray-200'
+                    } placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all sm:text-sm`}
                     placeholder="Họ"
                   />
                   {errors.lastName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.lastName.message}</p>
+                    <p className="mt-2 text-xs text-red-600">{errors.lastName.message}</p>
                   )}
                 </div>
               </div>
@@ -202,95 +212,100 @@ const RegisterForm = () => {
 
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
+              <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">
+                📧 Email
               </label>
               <div className="mt-1">
                 <input
                   {...register('email')}
                   type="email"
                   autoComplete="email"
-                  className={`appearance-none relative block w-full px-3 py-2 border ${
-                    errors.email ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                  className={`appearance-none relative block w-full px-4 py-3 border-2 ${
+                    errors.email ? 'border-red-300' : 'border-gray-200'
+                  } placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all sm:text-sm`}
                   placeholder="Nhập email của bạn"
                 />
                 {errors.email && (
-                  <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+                  <p className="mt-2 text-sm text-red-600 flex items-center">
+                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    {errors.email.message}
+                  </p>
                 )}
               </div>
             </div>
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Mật khẩu
+              <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-2">
+                🔒 Mật khẩu
               </label>
               <div className="mt-1 relative">
                 <input
                   {...register('password')}
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
-                  className={`appearance-none relative block w-full px-3 py-2 pr-10 border ${
-                    errors.password ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                  className={`appearance-none relative block w-full px-4 py-3 pr-12 border-2 ${
+                    errors.password ? 'border-red-300' : 'border-gray-200'
+                  } placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all sm:text-sm`}
                   placeholder="Nhập mật khẩu"
                 />
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center hover:scale-110 transition-transform"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? (
-                    <EyeSlashIcon className="h-5 w-5 text-gray-400" />
+                    <EyeSlashIcon className="h-5 w-5 text-gray-400 hover:text-teal-500" />
                   ) : (
-                    <EyeIcon className="h-5 w-5 text-gray-400" />
+                    <EyeIcon className="h-5 w-5 text-gray-400 hover:text-teal-500" />
                   )}
                 </button>
                 {errors.password && (
-                  <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+                  <p className="mt-2 text-sm text-red-600">{errors.password.message}</p>
                 )}
               </div>
             </div>
 
             {/* Phone Field */}
             <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                Số điện thoại (không bắt buộc)
+              <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">
+                📱 Số điện thoại <span className="text-gray-400 font-normal">(không bắt buộc)</span>
               </label>
               <div className="mt-1">
                 <input
                   {...register('phone')}
                   type="tel"
                   autoComplete="tel"
-                  className={`appearance-none relative block w-full px-3 py-2 border ${
-                    errors.phone ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                  className={`appearance-none relative block w-full px-4 py-3 border-2 ${
+                    errors.phone ? 'border-red-300' : 'border-gray-200'
+                  } placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all sm:text-sm`}
                   placeholder="VD: 0987654321"
                 />
                 {errors.phone && (
-                  <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
+                  <p className="mt-2 text-sm text-red-600">{errors.phone.message}</p>
                 )}
               </div>
             </div>
 
             {/* Location Field */}
             <div>
-              <label htmlFor="location" className="block text-sm font-medium text-gray-700">
-                Địa chỉ (không bắt buộc)
+              <label htmlFor="location" className="block text-sm font-semibold text-gray-700 mb-2">
+                📍 Địa chỉ <span className="text-gray-400 font-normal">(không bắt buộc)</span>
               </label>
               <div className="mt-1">
                 <input
                   {...register('location')}
                   type="text"
                   autoComplete="address-line1"
-                  className={`appearance-none relative block w-full px-3 py-2 border ${
-                    errors.location ? 'border-red-300' : 'border-gray-300'
-                  } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
+                  className={`appearance-none relative block w-full px-4 py-3 border-2 ${
+                    errors.location ? 'border-red-300' : 'border-gray-200'
+                  } placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all sm:text-sm`}
                   placeholder="VD: Hà Nội, Việt Nam"
                 />
                 {errors.location && (
-                  <p className="mt-1 text-sm text-red-600">{errors.location.message}</p>
+                  <p className="mt-2 text-sm text-red-600">{errors.location.message}</p>
                 )}
               </div>
             </div>
@@ -300,10 +315,10 @@ const RegisterForm = () => {
             <button
               type="submit"
               disabled={loading}
-              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+              className={`group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-semibold rounded-xl text-white shadow-lg ${
                 loading
-                  ? 'bg-indigo-400 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                  ? 'bg-gradient-to-r from-teal-400 to-cyan-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-600 hover:to-cyan-700 transform hover:scale-[1.02] transition-all'
               }`}
             >
               {loading ? (
@@ -331,7 +346,12 @@ const RegisterForm = () => {
                   Đang đăng ký...
                 </div>
               ) : (
-                'Đăng ký tài khoản'
+                <span className="flex items-center">
+                  <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                  </svg>
+                  Đăng ký tài khoản
+                </span>
               )}
             </button>
           </div>
@@ -339,16 +359,21 @@ const RegisterForm = () => {
           {/* Terms and Privacy */}
           <div className="text-center text-xs text-gray-500">
             Bằng việc đăng ký, bạn đồng ý với{' '}
-            <Link to="/terms" className="text-indigo-600 hover:text-indigo-500">
+            <Link to="/terms" className="font-medium text-teal-600 hover:text-teal-700">
               Điều khoản sử dụng
             </Link>{' '}
             và{' '}
-            <Link to="/privacy" className="text-indigo-600 hover:text-indigo-500">
+            <Link to="/privacy" className="font-medium text-teal-600 hover:text-teal-700">
               Chính sách bảo mật
             </Link>{' '}
             của chúng tôi.
           </div>
         </form>
+        </div>
+
+        {/* Decorative Elements */}
+        <div className="absolute top-0 left-0 w-32 h-32 bg-teal-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+        <div className="absolute bottom-0 right-0 w-32 h-32 bg-cyan-200 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
       </div>
     </div>
   );
