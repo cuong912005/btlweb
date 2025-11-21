@@ -4,6 +4,41 @@ import NotificationService from './NotificationService.js';
 const prisma = new PrismaClient();
 
 class AdminService {
+  // Get dashboard statistics for admin
+  async getDashboardStats() {
+    try {
+      const [totalEvents, approvedEvents, pendingEvents, totalVolunteers] = await Promise.all([
+        // Total events
+        prisma.event.count(),
+        
+        // Approved events
+        prisma.event.count({
+          where: { status: 'APPROVED' }
+        }),
+        
+        // Pending events
+        prisma.event.count({
+          where: { status: 'PENDING' }
+        }),
+        
+        // Total volunteers (users with role VOLUNTEER)
+        prisma.user.count({
+          where: { role: 'VOLUNTEER' }
+        })
+      ]);
+
+      return {
+        totalEvents,
+        approvedEvents,
+        pendingEvents,
+        totalVolunteers
+      };
+    } catch (error) {
+      console.error('AdminService.getDashboardStats error:', error);
+      throw error;
+    }
+  }
+
   async getPendingEvents() {
     const pendingEvents = await prisma.event.findMany({
       where: {
@@ -42,7 +77,7 @@ class AdminService {
       submittedDaysAgo: Math.floor((new Date() - new Date(event.createdAt)) / (1000 * 60 * 60 * 24))
     }));
   }
-
+  
   async approveOrRejectEvent(eventId, action, reason, adminUserId) {
     // Check if event exists and is pending
     const event = await prisma.event.findUnique({
@@ -370,6 +405,219 @@ class AdminService {
     });
 
     return csvRows.join('\n');
+  }
+
+  // User Management: Get all users with filters
+  async getUsers(page = 1, limit = 20, role = null, status = null, search = '') {
+    const skip = (page - 1) * limit;
+    
+    const where = {
+      role: { not: 'ADMIN' } // Don't show admins in user list
+    };
+
+    if (role && ['VOLUNTEER', 'ORGANIZER'].includes(role)) {
+      where.role = role;
+    }
+
+    if (status !== null && status !== undefined) {
+      where.isActive = status === 'active';
+    }
+
+    if (search && search.trim()) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [users, totalCount] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          phone: true,
+          location: true,
+          isActive: true,
+          createdAt: true,
+          _count: {
+            select: {
+              organizedEvents: true,
+              participations: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        },
+        skip: parseInt(skip),
+        take: parseInt(limit)
+      }),
+      prisma.user.count({ where })
+    ]);
+
+    return {
+      users: users.map(user => ({
+        id: user.id,
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        phone: user.phone,
+        location: user.location,
+        isActive: user.isActive,
+        eventsOrganized: user._count.organizedEvents,
+        eventsParticipated: user._count.participations,
+        createdAt: user.createdAt
+      })),
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNext: skip + limit < totalCount,
+        hasPrev: page > 1
+      }
+    };
+  }
+
+  // User Management: Toggle user active status (lock/unlock account)
+  async toggleUserStatus(userId, adminUserId) {
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true
+      }
+    });
+
+    if (!user) {
+      throw new Error('USER_NOT_FOUND');
+    }
+
+    // Don't allow locking admin accounts
+    if (user.role === 'ADMIN') {
+      throw new Error('CANNOT_LOCK_ADMIN');
+    }
+
+    // Don't allow locking yourself
+    if (user.id === adminUserId) {
+      throw new Error('CANNOT_LOCK_SELF');
+    }
+
+    // Toggle active status
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        isActive: !user.isActive
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true
+      }
+    });
+
+    return {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      name: `${updatedUser.firstName} ${updatedUser.lastName}`,
+      role: updatedUser.role,
+      isActive: updatedUser.isActive,
+      action: updatedUser.isActive ? 'unlocked' : 'locked'
+    };
+  }
+
+  // User Management: Get user details
+  async getUserDetails(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        phone: true,
+        location: true,
+        bio: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        organizedEvents: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            startDate: true,
+            category: true
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 10
+        },
+        participations: {
+          select: {
+            id: true,
+            status: true,
+            registeredAt: true,
+            event: {
+              select: {
+                id: true,
+                title: true,
+                startDate: true,
+                category: true
+              }
+            }
+          },
+          orderBy: {
+            registeredAt: 'desc'
+          },
+          take: 10
+        }
+      }
+    });
+
+    if (!user) {
+      throw new Error('USER_NOT_FOUND');
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      name: `${user.firstName} ${user.lastName}`,
+      role: user.role,
+      phone: user.phone,
+      location: user.location,
+      bio: user.bio,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      stats: {
+        eventsOrganized: user.organizedEvents.length,
+        eventsParticipated: user.participations.length
+      },
+      organizedEvents: user.organizedEvents,
+      participations: user.participations.map(p => ({
+        ...p,
+        event: p.event
+      }))
+    };
   }
 }
 

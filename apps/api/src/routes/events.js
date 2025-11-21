@@ -357,12 +357,11 @@ router.get('/:eventId/participants', authenticateToken, requireOrganizerOrAdmin,
     const { eventId } = req.params;
     const organizerId = req.user.id;
 
-    const participants = await EventService.getEventParticipants(eventId, organizerId);
+    const data = await EventService.getEventParticipants(eventId, organizerId);
 
     res.json({
       success: true,
-      participants,
-      totalCount: participants.length
+      ...data
     });
   } catch (error) {
     console.error('Get event participants error:', error);
@@ -379,11 +378,11 @@ router.get('/:eventId/participants', authenticateToken, requireOrganizerOrAdmin,
   }
 });
 
-// Update participant status (organizer only) - Enhanced with reason
+// Update participant status (organizer only) - Enhanced with reason and completion marking
 router.patch('/participants/:participantId/status', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
     const { participantId } = req.params;
-    const { status, reason } = req.body;
+    const { status, reason, isCompleted } = req.body;
     const organizerId = req.user.id;
 
     if (!['APPROVED', 'REJECTED'].includes(status)) {
@@ -392,7 +391,7 @@ router.patch('/participants/:participantId/status', authenticateToken, requireOr
       });
     }
 
-    const updatedParticipant = await EventService.updateParticipantStatus(participantId, status, organizerId, reason);
+    const updatedParticipant = await EventService.updateParticipantStatus(participantId, status, organizerId, reason, isCompleted);
 
     res.json({
       success: true,
@@ -426,16 +425,28 @@ router.patch('/participants/:participantId/status', authenticateToken, requireOr
       });
     }
 
+    if (error.message === 'EVENT_NOT_ENDED') {
+      return res.status(400).json({
+        error: 'Chỉ có thể đánh dấu hoàn thành sau khi sự kiện kết thúc'
+      });
+    }
+
+    if (error.message === 'PARTICIPANT_NOT_APPROVED') {
+      return res.status(400).json({
+        error: 'Người tham gia chưa được phê duyệt'
+      });
+    }
+
     res.status(500).json({
       error: 'Lỗi khi cập nhật trạng thái người tham gia'
     });
   }
 });
 
-// Bulk update participant status (organizer only) - Story 3.3
+// Bulk update participant status (organizer only) - Story 3.3 with completion marking
 router.patch('/participants/bulk-status', authenticateToken, requireOrganizerOrAdmin, async (req, res) => {
   try {
-    const { participantIds, status, reason } = req.body;
+    const { participantIds, status, reason, isCompleted } = req.body;
     const organizerId = req.user.id;
 
     if (!Array.isArray(participantIds) || participantIds.length === 0) {
@@ -450,7 +461,7 @@ router.patch('/participants/bulk-status', authenticateToken, requireOrganizerOrA
       });
     }
 
-    const result = await EventService.bulkUpdateParticipantStatus(participantIds, status, organizerId, reason);
+    const result = await EventService.bulkUpdateParticipantStatus(participantIds, status, organizerId, reason, isCompleted);
 
     res.json({
       success: true,
@@ -475,6 +486,12 @@ router.patch('/participants/bulk-status', authenticateToken, requireOrganizerOrA
     if (error.message.startsWith('EVENT_CAPACITY_EXCEEDED_FOR_')) {
       return res.status(400).json({
         error: 'Một số sự kiện sẽ vượt quá sức chứa nếu phê duyệt tất cả'
+      });
+    }
+
+    if (error.message === 'SOME_EVENTS_NOT_ENDED') {
+      return res.status(400).json({
+        error: 'Một số sự kiện chưa kết thúc, không thể đánh dấu hoàn thành'
       });
     }
 
@@ -612,6 +629,32 @@ router.get('/:eventId/feedback', authenticateToken, requireOrganizerOrAdmin, asy
   }
 });
 
+// Get public event feedback and ratings (accessible to all) - Public ratings display
+router.get('/:eventId/public-feedback', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+
+    const feedbackData = await EventService.getPublicEventFeedback(eventId);
+
+    res.json({
+      success: true,
+      ...feedbackData
+    });
+  } catch (error) {
+    console.error('Get public event feedback error:', error);
+    
+    if (error.message === 'EVENT_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy sự kiện'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Lỗi khi lấy đánh giá sự kiện'
+    });
+  }
+});
+
 // List events with enhanced filtering and search (Story 3.1)
 router.get('/', async (req, res) => {
   try {
@@ -625,8 +668,22 @@ router.get('/', async (req, res) => {
       sortOrder,
       page, 
       limit,
-      availability 
+      availability,
+      eventStatus,
+      registrationStatus
     } = req.query;
+
+    // Try to get userId from token if present (for filtering registered events)
+    let userId = null;
+    try {
+      const token = req.cookies?.accessToken || req.cookies?.token || req.headers.authorization?.replace('Bearer ', '');
+      if (token) {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = decoded.userId;
+      }
+    } catch (tokenError) {
+      // Token is invalid or expired, continue without user context
+    }
 
     const result = await EventService.getApprovedEvents({
       category,
@@ -638,8 +695,10 @@ router.get('/', async (req, res) => {
       sortOrder,
       page,
       limit,
-      availability
-    });
+      availability,
+      eventStatus,
+      registrationStatus
+    }, userId);
 
     res.json(result);
   } catch (error) {

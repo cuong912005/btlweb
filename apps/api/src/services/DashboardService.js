@@ -12,7 +12,10 @@ class DashboardService {
         widgets: {
           upcomingEvents: await this.getUpcomingEvents(user),
           recentActivity: await this.getRecentActivity(user),
-          trendingEvents: await this.getTrendingEvents()
+          newlyPublishedEvents: await this.getNewlyPublishedEvents(),
+          trendingEvents: await this.getTrendingEvents(),
+          recentPosts: await this.getRecentPosts(),
+          trendingPosts: await this.getTrendingPosts()
         }
       };
 
@@ -326,6 +329,330 @@ class DashboardService {
           totalEvents: 0
         }
       };
+    }
+  }
+
+  // Get newly published events (recently approved events)
+  async getNewlyPublishedEvents() {
+    try {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      
+      const newEvents = await prisma.event.findMany({
+        where: {
+          status: 'APPROVED',
+          approvedAt: { gte: threeDaysAgo },
+          startDate: { gte: new Date() } // Only upcoming events
+        },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          location: true,
+          startDate: true,
+          endDate: true,
+          category: true,
+          capacity: true,
+          approvedAt: true,
+          organizer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              avatar: true
+            }
+          },
+          _count: {
+            select: {
+              participants: {
+                where: { status: 'APPROVED' }
+              }
+            }
+          },
+          communicationChannel: {
+            select: {
+              id: true,
+              _count: {
+                select: {
+                  posts: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: { approvedAt: 'desc' },
+        take: 10
+      });
+
+      return newEvents.map(event => ({
+        id: event.id,
+        title: event.title,
+        description: event.description,
+        location: event.location,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        category: event.category,
+        capacity: event.capacity,
+        approvedAt: event.approvedAt,
+        organizer: event.organizer,
+        participantCount: event._count.participants,
+        postCount: event.communicationChannel?._count.posts || 0,
+        type: 'event'
+      }));
+    } catch (error) {
+      console.error('DashboardService.getNewlyPublishedEvents error:', error);
+      return [];
+    }
+  }
+
+  // Get trending events (based on recent activity: new members, posts, likes, comments)
+  async getTrendingEvents() {
+    try {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      
+      // Get events with recent activity
+      const events = await prisma.event.findMany({
+        where: {
+          status: 'APPROVED',
+          startDate: { gte: new Date() } // Only upcoming events
+        },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          location: true,
+          startDate: true,
+          endDate: true,
+          category: true,
+          capacity: true,
+          organizer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              avatar: true
+            }
+          },
+          _count: {
+            select: {
+              participants: {
+                where: { 
+                  status: 'APPROVED',
+                  registeredAt: { gte: oneWeekAgo }
+                }
+              }
+            }
+          },
+          communicationChannel: {
+            select: {
+              id: true,
+              posts: {
+                where: {
+                  createdAt: { gte: oneWeekAgo }
+                },
+                select: {
+                  id: true,
+                  _count: {
+                    select: {
+                      likes: true,
+                      comments: true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // Calculate engagement score for each event
+      const eventsWithScore = events.map(event => {
+        const recentParticipants = event._count.participants;
+        const recentPosts = event.communicationChannel?.posts.length || 0;
+        const recentLikes = event.communicationChannel?.posts.reduce(
+          (sum, post) => sum + post._count.likes, 0
+        ) || 0;
+        const recentComments = event.communicationChannel?.posts.reduce(
+          (sum, post) => sum + post._count.comments, 0
+        ) || 0;
+
+        // Engagement score formula: weighted sum
+        const engagementScore = 
+          (recentParticipants * 5) +  // New members weight: 5
+          (recentPosts * 3) +          // New posts weight: 3
+          (recentLikes * 1) +          // Likes weight: 1
+          (recentComments * 2);        // Comments weight: 2
+
+        return {
+          id: event.id,
+          title: event.title,
+          description: event.description,
+          location: event.location,
+          startDate: event.startDate,
+          endDate: event.endDate,
+          category: event.category,
+          capacity: event.capacity,
+          organizer: event.organizer,
+          engagementScore,
+          recentActivity: {
+            newMembers: recentParticipants,
+            newPosts: recentPosts,
+            likes: recentLikes,
+            comments: recentComments
+          },
+          type: 'event'
+        };
+      });
+
+      // Sort by engagement score and return top 10
+      return eventsWithScore
+        .sort((a, b) => b.engagementScore - a.engagementScore)
+        .slice(0, 10);
+    } catch (error) {
+      console.error('DashboardService.getTrendingEvents error:', error);
+      return [];
+    }
+  }
+
+  // Get recent posts from all event channels
+  async getRecentPosts() {
+    try {
+      const recentPosts = await prisma.channelPost.findMany({
+        where: {
+          channel: {
+            event: {
+              status: 'APPROVED'
+            }
+          }
+        },
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true
+            }
+          },
+          channel: {
+            select: {
+              event: {
+                select: {
+                  id: true,
+                  title: true,
+                  category: true
+                }
+              }
+            }
+          },
+          _count: {
+            select: {
+              likes: true,
+              comments: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10
+      });
+
+      return recentPosts.map(post => ({
+        id: post.id,
+        content: post.content,
+        imageUrl: post.imageUrl,
+        createdAt: post.createdAt,
+        author: post.author,
+        event: post.channel.event,
+        likeCount: post._count.likes,
+        commentCount: post._count.comments,
+        type: 'post'
+      }));
+    } catch (error) {
+      console.error('DashboardService.getRecentPosts error:', error);
+      return [];
+    }
+  }
+
+  // Get trending posts (based on likes and comments)
+  async getTrendingPosts() {
+    try {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      
+      const posts = await prisma.channelPost.findMany({
+        where: {
+          createdAt: { gte: threeDaysAgo },
+          channel: {
+            event: {
+              status: 'APPROVED'
+            }
+          }
+        },
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              avatar: true,
+              role: true
+            }
+          },
+          channel: {
+            select: {
+              event: {
+                select: {
+                  id: true,
+                  title: true,
+                  category: true
+                }
+              }
+            }
+          },
+          _count: {
+            select: {
+              likes: true,
+              comments: true
+            }
+          }
+        }
+      });
+
+      // Calculate engagement score for each post
+      const postsWithScore = posts.map(post => {
+        const engagementScore = 
+          (post._count.likes * 1) +      // Likes weight: 1
+          (post._count.comments * 3);    // Comments weight: 3 (more valuable)
+
+        return {
+          id: post.id,
+          content: post.content,
+          imageUrl: post.imageUrl,
+          createdAt: post.createdAt,
+          author: post.author,
+          event: post.channel.event,
+          likeCount: post._count.likes,
+          commentCount: post._count.comments,
+          engagementScore,
+          type: 'post'
+        };
+      });
+
+      // Sort by engagement score and return top 10
+      return postsWithScore
+        .sort((a, b) => b.engagementScore - a.engagementScore)
+        .slice(0, 10);
+    } catch (error) {
+      console.error('DashboardService.getTrendingPosts error:', error);
+      return [];
     }
   }
 }

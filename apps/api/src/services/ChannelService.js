@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { deleteCloudinaryImage, extractPublicId } from '../config/cloudinary.js';
+import NotificationService from './NotificationService.js';
 
 const prisma = new PrismaClient();
 
@@ -30,8 +31,8 @@ class ChannelService {
       throw new Error('CHANNEL_NOT_FOUND');
     }
 
-    // Check access: organizer or approved participant
-    const isOrganizer = channel.event.organizerId === userId;
+    // Check access: organizer or approved participant - FIX: Use channel.event.organizer.id
+    const isOrganizer = channel.event.organizer.id === userId;
     const isApprovedParticipant = channel.event.participants.length > 0;
 
     if (!isOrganizer && !isApprovedParticipant) {
@@ -52,6 +53,18 @@ class ChannelService {
 
     const skip = (page - 1) * limit;
 
+    // Get channel with event info to determine organizer
+    const channel = await prisma.communicationChannel.findUnique({
+      where: { id: channelId },
+      select: {
+        event: {
+          select: {
+            organizerId: true
+          }
+        }
+      }
+    });
+
     const posts = await prisma.channelPost.findMany({
       where: { channelId },
       include: {
@@ -60,7 +73,8 @@ class ChannelService {
             id: true,
             firstName: true,
             lastName: true,
-            avatar: true
+            avatar: true,
+            role: true
           }
         },
         likes: {
@@ -104,17 +118,26 @@ class ChannelService {
       where: { channelId }
     });
 
+    const organizerId = channel?.event?.organizerId;
+
     return {
       posts: posts.map(post => ({
         id: post.id,
         content: post.content,
         imageUrl: post.imageUrl,
-        author: post.author,
+        author: {
+          ...post.author,
+          // Determine role in event context: if author is organizer, show ORGANIZER, else show their actual role
+          roleInEvent: post.author.id === organizerId ? 'ORGANIZER' : 'VOLUNTEER'
+        },
         likes: post.likes,
         comments: post.comments.map(comment => ({
           id: comment.id,
           content: comment.content,
-          author: comment.author,
+          author: {
+            ...comment.author,
+            roleInEvent: comment.author.id === organizerId ? 'ORGANIZER' : 'VOLUNTEER'
+          },
           createdAt: comment.createdAt
         })),
         likeCount: post._count.likes,
@@ -139,7 +162,7 @@ class ChannelService {
     const { content, imageUrl } = postData;
 
     // Check access
-    await this.checkChannelAccess(channelId, userId);
+    const { channel } = await this.checkChannelAccess(channelId, userId);
 
     const post = await prisma.channelPost.create({
       data: {
@@ -154,15 +177,15 @@ class ChannelService {
             id: true,
             firstName: true,
             lastName: true,
-            avatar: true
+            avatar: true,
+            role: true
           }
         },
         channel: {
           include: {
             event: {
               select: {
-                id: true,
-                title: true
+                organizerId: true
               }
             }
           }
@@ -170,11 +193,16 @@ class ChannelService {
       }
     });
 
+    const organizerId = post.channel?.event?.organizerId;
+
     return {
       id: post.id,
       content: post.content,
       imageUrl: post.imageUrl,
-      author: post.author,
+      author: {
+        ...post.author,
+        roleInEvent: post.author.id === organizerId ? 'ORGANIZER' : 'VOLUNTEER'
+      },
       likes: [],
       comments: [],
       likeCount: 0,
@@ -290,6 +318,18 @@ class ChannelService {
     // Check channel access
     await this.checkChannelAccess(post.channelId, userId);
 
+    // Get organizer ID for role determination
+    const channel = await prisma.communicationChannel.findUnique({
+      where: { id: post.channelId },
+      select: {
+        event: {
+          select: {
+            organizerId: true
+          }
+        }
+      }
+    });
+
     const comment = await prisma.postComment.create({
       data: {
         postId,
@@ -302,16 +342,22 @@ class ChannelService {
             id: true,
             firstName: true,
             lastName: true,
-            avatar: true
+            avatar: true,
+            role: true
           }
         }
       }
     });
 
+    const organizerId = channel?.event?.organizerId;
+
     return {
       id: comment.id,
       content: comment.content,
-      author: comment.author,
+      author: {
+        ...comment.author,
+        roleInEvent: comment.author.id === organizerId ? 'ORGANIZER' : 'VOLUNTEER'
+      },
       createdAt: comment.createdAt,
       postId,
       eventId: post.channel.event.id
@@ -328,7 +374,10 @@ class ChannelService {
             event: {
               select: {
                 id: true,
-                organizerId: true
+                organizerId: true,
+                organizer: {
+                  select: { id: true }
+                }
               }
             }
           }
@@ -340,7 +389,7 @@ class ChannelService {
       throw new Error('POST_NOT_FOUND');
     }
 
-    // Check if user can delete (author or organizer)
+    // Check if user can delete (author or organizer) - Can use organizerId directly here
     const isAuthor = post.authorId === userId;
     const isOrganizer = post.channel.event.organizerId === userId;
 
@@ -379,7 +428,7 @@ class ChannelService {
       where: { id: eventId },
       include: {
         organizer: {
-          select: { id: true }
+          select: { id: true, firstName: true, lastName: true }
         },
         participants: {
           where: {
@@ -400,8 +449,8 @@ class ChannelService {
       throw new Error('EVENT_NOT_APPROVED');
     }
 
-    // Check permissions
-    const isOrganizer = event.organizerId === userId;
+    // Check permissions - FIX: Use event.organizer.id instead of event.organizerId
+    const isOrganizer = event.organizer.id === userId;
     const isApprovedParticipant = event.participants.length > 0;
 
     if (!isOrganizer && !isApprovedParticipant) {

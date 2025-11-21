@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import webPush from 'web-push';
 
 const prisma = new PrismaClient();
+let io = null; // Will be set by setSocketIO method
 
 // Configure Web Push
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
@@ -16,6 +17,53 @@ webPush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
 console.log('✅ VAPID keys configured successfully');
 
 class NotificationService {
+  // Set Socket.IO instance
+  setSocketIO(socketIO) {
+    io = socketIO;
+    console.log('✅ Socket.IO instance set for NotificationService');
+  }
+
+  // Emit real-time notification via Socket.IO
+  emitNotification(userId, notification) {
+    if (io) {
+      io.to(`user-${userId}`).emit('new-notification', notification);
+      console.log(`Emitted real-time notification to user ${userId}`);
+    }
+  }
+
+  // Send notification (both push and Socket.IO)
+  async sendNotification(userId, payload, options = {}) {
+    try {
+      // Save to database
+      const notificationLog = await prisma.notificationLog.create({
+        data: {
+          userId,
+          type: payload.data?.type || 'EVENT_APPROVAL_REQUIRED',
+          title: payload.title,
+          body: payload.body,
+          data: payload.data || {},
+          isRead: false
+        }
+      });
+
+      // Emit real-time notification via Socket.IO with database ID
+      this.emitNotification(userId, {
+        id: notificationLog.id,
+        type: notificationLog.type,
+        title: notificationLog.title,
+        body: notificationLog.body,
+        data: notificationLog.data,
+        isRead: false,
+        createdAt: notificationLog.createdAt
+      });
+
+      // Send push notification
+      await this.sendPushNotification(userId, payload, options);
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
+  }
+
   // Subscribe user to push notifications
   async subscribeToPush(userId, subscription) {
     try {
@@ -60,6 +108,22 @@ class NotificationService {
   // Unsubscribe user from push notifications
   async unsubscribeFromPush(userId, endpoint) {
     try {
+      // Check if subscription exists first
+      const existingSubscription = await prisma.pushSubscription.findUnique({
+        where: {
+          userId_endpoint: {
+            userId,
+            endpoint
+          }
+        }
+      });
+
+      if (!existingSubscription) {
+        // Subscription doesn't exist, return success anyway
+        return { success: true, message: 'Subscription not found' };
+      }
+
+      // Delete the subscription
       const result = await prisma.pushSubscription.delete({
         where: {
           userId_endpoint: {
@@ -198,8 +262,14 @@ class NotificationService {
         ]
       };
 
+      // Send to all admins (both Socket.IO and Push)
       const adminIds = admins.map(admin => admin.id);
-      return await this.sendBulkPushNotifications(adminIds, payload, { urgency: 'high' });
+      const promises = adminIds.map(adminId => 
+        this.sendNotification(adminId, payload, { urgency: 'high' })
+      );
+      await Promise.allSettled(promises);
+      
+      return { success: true, notifiedAdmins: adminIds.length };
     } catch (error) {
       console.error('Error notifying admin of new event:', error);
       throw error;
@@ -238,7 +308,7 @@ class NotificationService {
         data: {
           type: 'NEW_REGISTRATION',
           eventId: event.id,
-          volunteerId: volunteer.id,
+          volunteerId: volunteerId,
           url: `/organizer/events/${event.id}/registrations`
         },
         actions: [
@@ -253,7 +323,7 @@ class NotificationService {
         ]
       };
 
-      return await this.sendPushNotification(event.organizerId, payload);
+      return await this.sendNotification(event.organizer.id, payload);
     } catch (error) {
       console.error('Error notifying organizer of new registration:', error);
       throw error;
@@ -327,7 +397,7 @@ class NotificationService {
         actions
       };
 
-      return await this.sendPushNotification(participant.volunteer.id, payload);
+      return await this.sendNotification(participant.volunteer.id, payload);
     } catch (error) {
       console.error('Error notifying volunteer of registration status:', error);
       throw error;
@@ -394,7 +464,7 @@ class NotificationService {
         actions
       };
 
-      return await this.sendPushNotification(event.organizerId, payload, { urgency: 'high' });
+      return await this.sendNotification(event.organizer.id, payload, { urgency: 'high' });
     } catch (error) {
       console.error('Error notifying organizer of event status:', error);
       throw error;
@@ -404,22 +474,94 @@ class NotificationService {
   // Get user's notification history (for Story 4.2.6)
   async getNotificationHistory(userId, page = 1, limit = 20) {
     try {
-      // Since we're using push notifications, we'll store a log in database
-      // This would require a separate NotificationLog model, but for now we'll return empty
-      // In a real implementation, you'd log all sent notifications
-      
+      const skip = (page - 1) * limit;
+
+      const [notifications, totalCount] = await Promise.all([
+        prisma.notificationLog.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit
+        }),
+        prisma.notificationLog.count({
+          where: { userId }
+        })
+      ]);
+
+      const totalPages = Math.ceil(totalCount / limit);
+
       return {
-        notifications: [],
+        notifications: notifications.map(n => ({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          body: n.body,
+          data: n.data,
+          isRead: n.isRead,
+          readAt: n.readAt,
+          createdAt: n.createdAt
+        })),
         pagination: {
           currentPage: page,
-          totalPages: 0,
-          totalCount: 0,
-          hasNext: false,
-          hasPrev: false
+          totalPages,
+          totalCount,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
         }
       };
     } catch (error) {
       console.error('Error getting notification history:', error);
+      throw error;
+    }
+  }
+
+  // Mark notification as read
+  async markNotificationAsRead(notificationId, userId) {
+    try {
+      const notification = await prisma.notificationLog.findUnique({
+        where: { id: notificationId }
+      });
+
+      if (!notification) {
+        throw new Error('NOTIFICATION_NOT_FOUND');
+      }
+
+      if (notification.userId !== userId) {
+        throw new Error('UNAUTHORIZED');
+      }
+
+      await prisma.notificationLog.update({
+        where: { id: notificationId },
+        data: {
+          isRead: true,
+          readAt: new Date()
+        }
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      throw error;
+    }
+  }
+
+  // Mark all notifications as read
+  async markAllNotificationsAsRead(userId) {
+    try {
+      const result = await prisma.notificationLog.updateMany({
+        where: {
+          userId,
+          isRead: false
+        },
+        data: {
+          isRead: true,
+          readAt: new Date()
+        }
+      });
+
+      return result.count;
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
       throw error;
     }
   }

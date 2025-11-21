@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 class EventService {
   // Get all approved events with filtering and enhanced search
-  async getApprovedEvents(filters = {}) {
+  async getApprovedEvents(filters = {}, userId = null) {
     const { 
       category, 
       location, 
@@ -16,18 +16,34 @@ class EventService {
       sortOrder = 'asc',
       page = 1, 
       limit = 20,
-      availability = 'all' // all, available, full
+      availability = 'all', // all, available, full
+      eventStatus = 'all', // all, upcoming, ongoing, past
+      registrationStatus = 'all' // all, available (can register), unavailable (expired/full)
     } = filters;
     
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Build where conditions
     const where = {
-      status: 'APPROVED',
-      startDate: {
-        gte: new Date() // Only future events
-      }
+      status: 'APPROVED'
+      // Allow past events to be displayed so users can see ratings
     };
+
+    // If user is a volunteer, exclude events they've already registered for (any status)
+    if (userId) {
+      const userRegistrations = await prisma.eventParticipant.findMany({
+        where: { volunteerId: userId },
+        select: { eventId: true }
+      });
+      
+      const registeredEventIds = userRegistrations.map(reg => reg.eventId);
+      
+      if (registeredEventIds.length > 0) {
+        where.id = {
+          notIn: registeredEventIds
+        };
+      }
+    }
 
     if (category && category !== 'all') {
       where.category = category;
@@ -49,11 +65,31 @@ class EventService {
     }
 
     if (startDate) {
+      if (!where.startDate) where.startDate = {};
       where.startDate.gte = new Date(startDate);
     }
 
     if (endDate) {
+      if (!where.startDate) where.startDate = {};
       where.startDate.lte = new Date(endDate);
+    }
+
+    // Filter by event status (upcoming, ongoing, past)
+    const now = new Date();
+    if (eventStatus && eventStatus !== 'all') {
+      if (eventStatus === 'upcoming') {
+        // Event hasn't started yet
+        where.startDate = { ...where.startDate, gt: now };
+      } else if (eventStatus === 'ongoing') {
+        // Event has started but not ended
+        where.startDate = { ...where.startDate, lte: now };
+        if (!where.endDate) where.endDate = {};
+        where.endDate.gte = now;
+      } else if (eventStatus === 'past') {
+        // Event has ended
+        if (!where.endDate) where.endDate = {};
+        where.endDate.lt = now;
+      }
     }
 
     // Build sorting options
@@ -141,6 +177,24 @@ class EventService {
       filteredEvents = filteredEvents.filter(event => event.isFull);
     }
 
+    // Apply registration status filter (can register vs expired/full)
+    const currentTime = new Date();
+    if (registrationStatus === 'available') {
+      // Only events that are not expired and not full
+      filteredEvents = filteredEvents.filter(event => {
+        const isExpired = new Date(event.endDate) < currentTime;
+        const isFull = event.capacity && event.participantCount >= event.capacity;
+        return !isExpired && !isFull;
+      });
+    } else if (registrationStatus === 'unavailable') {
+      // Only expired or full events
+      filteredEvents = filteredEvents.filter(event => {
+        const isExpired = new Date(event.endDate) < currentTime;
+        const isFull = event.capacity && event.participantCount >= event.capacity;
+        return isExpired || isFull;
+      });
+    }
+
     return {
       success: true,
       events: filteredEvents,
@@ -160,7 +214,8 @@ class EventService {
         endDate,
         sortBy,
         sortOrder,
-        availability
+        availability,
+        registrationStatus
       }
     };
   }
@@ -431,11 +486,20 @@ class EventService {
             startDate: true,
             endDate: true,
             category: true,
+            capacity: true,
             status: true,
             organizer: {
               select: {
                 firstName: true,
-                lastName: true
+                lastName: true,
+                avatar: true
+              }
+            },
+            _count: {
+              select: {
+                participants: {
+                  where: { status: 'APPROVED' }
+                }
               }
             }
           }
@@ -449,7 +513,10 @@ class EventService {
       status: reg.status,
       registeredAt: reg.registeredAt,
       completedAt: reg.completedAt,
-      event: reg.event
+      event: {
+        ...reg.event,
+        participantCount: reg.event._count.participants
+      }
     }));
   }
 
@@ -506,7 +573,9 @@ class EventService {
       include: {
         _count: {
           select: {
-            participants: true
+            participants: {
+              where: { status: 'APPROVED' }
+            }
           }
         }
       },
@@ -589,19 +658,26 @@ class EventService {
         volunteer: p.volunteer,
         status: p.status,
         registeredAt: p.registeredAt,
-        completedAt: p.completedAt
+        completedAt: p.completedAt,
+        rejectionReason: p.rejectionReason,
+        isCompleted: p.status === 'COMPLETED',
+        canMarkCompleted: p.status === 'APPROVED' && 
+                         event.endDate <= new Date(),
+        canUnmarkCompleted: p.status === 'COMPLETED' && 
+                           event.endDate <= new Date()
       })),
       summary: {
         total: participants.length,
         pending: participants.filter(p => p.status === 'PENDING').length,
         approved: participants.filter(p => p.status === 'APPROVED').length,
+        completed: participants.filter(p => p.status === 'COMPLETED').length,
         rejected: participants.filter(p => p.status === 'REJECTED').length
       }
     };
   }
 
-  // Approve/reject participant with reason
-  async updateParticipantStatus(participantId, status, organizerId, reason = null) {
+  // Approve/reject participant with reason and optional completion marking
+  async updateParticipantStatus(participantId, status, organizerId, reason = null, isCompleted = null) {
     const participant = await prisma.eventParticipant.findUnique({
       where: { id: participantId },
       include: {
@@ -611,6 +687,7 @@ class EventService {
             title: true,
             organizerId: true,
             capacity: true,
+            endDate: true,
             _count: {
               select: {
                 participants: {
@@ -651,12 +728,33 @@ class EventService {
       throw new Error('REJECTION_REASON_REQUIRED');
     }
 
+    // Validate completion marking
+    if (isCompleted !== null) {
+      if (participant.status !== 'APPROVED' && participant.status !== 'COMPLETED') {
+        throw new Error('PARTICIPANT_NOT_APPROVED');
+      }
+      
+      const now = new Date();
+      if (participant.event.endDate > now) {
+        throw new Error('EVENT_NOT_ENDED');
+      }
+    }
+
+    // Prepare update data
+    const updateData = { 
+      status,
+      rejectionReason: status === 'REJECTED' ? reason?.trim() : null
+    };
+
+    // Handle completion marking if provided
+    if (isCompleted !== null) {
+      updateData.status = isCompleted ? 'COMPLETED' : 'APPROVED';
+      updateData.completedAt = isCompleted ? new Date() : null;
+    }
+
     const updatedParticipant = await prisma.eventParticipant.update({
       where: { id: participantId },
-      data: { 
-        status,
-        rejectionReason: status === 'REJECTED' ? reason?.trim() : null
-      },
+      data: updateData,
       include: {
         volunteer: {
           select: {
@@ -692,13 +790,14 @@ class EventService {
       id: updatedParticipant.id,
       status: updatedParticipant.status,
       rejectionReason: updatedParticipant.rejectionReason,
+      completedAt: updatedParticipant.completedAt,
       volunteer: updatedParticipant.volunteer,
       event: updatedParticipant.event
     };
   }
 
-  // Bulk approve/reject participants
-  async bulkUpdateParticipantStatus(participantIds, status, organizerId, reason = null) {
+  // Bulk approve/reject participants with optional completion marking
+  async bulkUpdateParticipantStatus(participantIds, status, organizerId, reason = null, isCompleted = null) {
     // Get all participants to verify ownership and capacity
     const participants = await prisma.eventParticipant.findMany({
       where: { 
@@ -711,6 +810,7 @@ class EventService {
             id: true,
             title: true,
             capacity: true,
+            endDate: true,
             _count: {
               select: {
                 participants: {
@@ -730,6 +830,15 @@ class EventService {
     // Validate rejection reason for bulk rejection
     if (status === 'REJECTED' && !reason?.trim()) {
       throw new Error('REJECTION_REASON_REQUIRED');
+    }
+
+    // Validate completion marking
+    if (isCompleted !== null) {
+      const now = new Date();
+      const notEndedEvents = participants.filter(p => p.event.endDate > now);
+      if (notEndedEvents.length > 0) {
+        throw new Error('SOME_EVENTS_NOT_ENDED');
+      }
     }
 
     // Group by event to check capacity for each event
@@ -753,21 +862,41 @@ class EventService {
       }
     }
 
+    // Prepare update data
+    const updateData = { 
+      status,
+      rejectionReason: status === 'REJECTED' ? reason?.trim() : null
+    };
+
+    // Handle completion marking if provided
+    if (isCompleted !== null) {
+      updateData.status = isCompleted ? 'COMPLETED' : 'APPROVED';
+      updateData.completedAt = isCompleted ? new Date() : null;
+    }
+
     // Update all participants
     const updatedParticipants = await prisma.eventParticipant.updateMany({
       where: { id: { in: participantIds } },
-      data: { 
-        status,
-        rejectionReason: status === 'REJECTED' ? reason?.trim() : null
-      }
+      data: updateData
     });
 
-    // TODO: Send bulk notifications to volunteers
-    // TODO: Grant communication channel access for approved participants
+    // Story 4.2.4: Send bulk notifications to volunteers
+    console.log(`[EventService] Bulk status update: Notifying ${participantIds.length} volunteers about status: ${updateData.status}`);
+    for (const participantId of participantIds) {
+      try {
+        await NotificationService.notifyVolunteerRegistrationStatus(participantId, updateData.status);
+      } catch (notificationError) {
+        console.error(`[EventService] Failed to notify volunteer for participant ${participantId}:`, notificationError);
+        // Don't fail the bulk operation if notification fails
+      }
+    }
+
+    // Note: Communication channel access is automatically granted when participant status is APPROVED
+    // The participant can access the channel through the event's communicationChannel relationship
 
     return {
       updatedCount: updatedParticipants.count,
-      status,
+      status: updateData.status,
       reason: status === 'REJECTED' ? reason : null,
       affectedEvents: Object.keys(eventGroups)
     };
@@ -816,7 +945,7 @@ class EventService {
         capacity: event.capacity,
         category: event.category,
         status: event.status,
-        participantCount: event._count.participants,
+        participantCount: participantSummary.approved + (participantSummary.completed || 0), // Only count approved and completed
         participantSummary,
         availableSpots: event.capacity ? event.capacity - participantSummary.approved : null,
         hasNewRegistrations: participantSummary.pending > 0,
@@ -886,11 +1015,20 @@ class EventService {
             startDate: true,
             endDate: true,
             category: true,
+            capacity: true,
             status: true,
             organizer: {
               select: {
                 firstName: true,
-                lastName: true
+                lastName: true,
+                avatar: true
+              }
+            },
+            _count: {
+              select: {
+                participants: {
+                  where: { status: 'APPROVED' }
+                }
               }
             }
           }
@@ -907,34 +1045,32 @@ class EventService {
     );
 
     const completed = participations.filter(p => 
-      p.status === 'APPROVED' && 
-      p.event.endDate < now
+      p.status === 'COMPLETED'
     );
 
     const pending = participations.filter(p => p.status === 'PENDING');
     const rejected = participations.filter(p => p.status === 'REJECTED');
 
-    // Calculate statistics
+    // Calculate statistics (exclude rejected events)
+    const validParticipations = participations.filter(p => p.status !== 'REJECTED');
     const totalHoursVolunteered = completed.reduce((total, p) => {
       const hours = Math.ceil((new Date(p.event.endDate) - new Date(p.event.startDate)) / (1000 * 60 * 60));
       return total + hours;
     }, 0);
 
     const statistics = {
-      totalRegistrations: participations.length,
-      completedEvents: completed.length,
-      upcomingEvents: upcoming.length,
-      pendingApprovals: pending.length,
-      rejectedApplications: rejected.length,
-      totalHoursVolunteered,
+      totalEvents: completed.length, // Only count completed events
+      totalHours: totalHoursVolunteered,
+      completionRate: validParticipations.length > 0 ? Math.round((completed.length / validParticipations.length) * 100) : 0,
+      averageRating: this.calculateAverageRating(completed),
       favoriteCategory: this.getFavoriteCategory(completed),
       currentStreak: this.calculateParticipationStreak(completed),
       achievements: this.calculateAchievements(completed, totalHoursVolunteered)
     };
 
     return {
-      statistics,
-      participations: {
+      stats: statistics,
+      events: {
         upcoming: upcoming.map(p => this.formatParticipation(p)),
         completed: completed.map(p => this.formatParticipation(p)),
         pending: pending.map(p => this.formatParticipation(p)),
@@ -954,13 +1090,21 @@ class EventService {
       rating: participation.rating,
       feedback: participation.feedback,
       ratedAt: participation.ratedAt,
-      canRate: participation.status === 'APPROVED' && 
-               new Date(participation.event.endDate) < new Date() && 
+      canRate: participation.status === 'COMPLETED' && 
                participation.rating === null,
       event: {
-        ...participation.event,
-        duration: Math.ceil((new Date(participation.event.endDate) - new Date(participation.event.startDate)) / (1000 * 60 * 60)),
-        organizer: `${participation.event.organizer.firstName} ${participation.event.organizer.lastName}`
+        id: participation.event.id,
+        title: participation.event.title,
+        description: participation.event.description,
+        location: participation.event.location,
+        startDate: participation.event.startDate,
+        endDate: participation.event.endDate,
+        category: participation.event.category,
+        capacity: participation.event.capacity,
+        status: participation.event.status,
+        organizer: participation.event.organizer,
+        participantCount: participation.event._count?.participants || 0,
+        duration: Math.ceil((new Date(participation.event.endDate) - new Date(participation.event.startDate)) / (1000 * 60 * 60))
       }
     };
   }
@@ -978,6 +1122,15 @@ class EventService {
       count > max.count ? { category, count } : max, 
       { category: null, count: 0 }
     ).category;
+  }
+
+  // Helper method to calculate average rating
+  calculateAverageRating(completedEvents) {
+    const ratedEvents = completedEvents.filter(p => p.rating !== null);
+    if (ratedEvents.length === 0) return 0;
+    
+    const totalRating = ratedEvents.reduce((sum, p) => sum + p.rating, 0);
+    return Math.round((totalRating / ratedEvents.length) * 10) / 10; // Round to 1 decimal
   }
 
   // Helper method to calculate participation streak
@@ -1165,14 +1318,8 @@ class EventService {
       throw new Error('PARTICIPATION_NOT_FOUND');
     }
 
-    if (participation.status !== 'APPROVED') {
-      throw new Error('PARTICIPATION_NOT_APPROVED');
-    }
-
-    // Check if event is completed
-    const now = new Date();
-    if (participation.event.endDate > now) {
-      throw new Error('EVENT_NOT_COMPLETED');
+    if (participation.status !== 'COMPLETED') {
+      throw new Error('PARTICIPATION_NOT_COMPLETED');
     }
 
     // Check if already rated
@@ -1235,7 +1382,71 @@ class EventService {
     const feedback = await prisma.eventParticipant.findMany({
       where: {
         eventId,
-        status: 'APPROVED',
+        status: 'COMPLETED',
+        rating: { not: null }
+      },
+      select: {
+        rating: true,
+        feedback: true,
+        ratedAt: true,
+        volunteer: {
+          select: {
+            firstName: true,
+            lastName: true
+          }
+        }
+      },
+      orderBy: { ratedAt: 'desc' }
+    });
+
+    // Calculate statistics
+    const ratings = feedback.map(f => f.rating);
+    const averageRating = ratings.length > 0 ? 
+      ratings.reduce((sum, r) => sum + r, 0) / ratings.length : 0;
+
+    const ratingDistribution = [1, 2, 3, 4, 5].map(star => ({
+      stars: star,
+      count: ratings.filter(r => r === star).length
+    }));
+
+    return {
+      event,
+      averageRating: Math.round(averageRating * 10) / 10,
+      totalRatings: ratings.length,
+      ratingDistribution,
+      feedback: feedback.map(f => ({
+        rating: f.rating,
+        feedback: f.feedback,
+        ratedAt: f.ratedAt,
+        volunteer: `${f.volunteer.firstName} ${f.volunteer.lastName}`
+      }))
+    };
+  }
+
+  // Get public event ratings and feedback (accessible to all users)
+  async getPublicEventFeedback(eventId) {
+    // Verify event exists and is approved
+    const event = await prisma.event.findUnique({
+      where: { 
+        id: eventId,
+        status: 'APPROVED' // Only show feedback for approved events
+      },
+      select: {
+        id: true,
+        title: true,
+        endDate: true
+      }
+    });
+
+    if (!event) {
+      throw new Error('EVENT_NOT_FOUND');
+    }
+
+    // Get all ratings and feedback for completed participants
+    const feedback = await prisma.eventParticipant.findMany({
+      where: {
+        eventId,
+        status: 'COMPLETED',
         rating: { not: null }
       },
       select: {

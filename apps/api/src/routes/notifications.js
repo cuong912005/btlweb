@@ -7,10 +7,11 @@ const router = express.Router();
 
 // Validation schemas
 const subscriptionSchema = Joi.object({
-  endpoint: Joi.string().uri().required().messages({
-    'string.uri': 'Endpoint phải là URL hợp lệ',
+  endpoint: Joi.string().required().messages({
+    'string.base': 'Endpoint phải là chuỗi',
     'any.required': 'Endpoint là bắt buộc'
   }),
+  expirationTime: Joi.any().optional(),
   keys: Joi.object({
     p256dh: Joi.string().required().messages({
       'any.required': 'p256dh key là bắt buộc'
@@ -112,6 +113,56 @@ router.get('/history', authenticateToken, async (req, res) => {
     console.error('Get notification history error:', error);
     res.status(500).json({
       error: 'Lỗi khi lấy lịch sử thông báo'
+    });
+  }
+});
+
+// Mark notification as read
+router.patch('/:notificationId/read', authenticateToken, async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    
+    await NotificationService.markNotificationAsRead(notificationId, req.user.id);
+    
+    res.json({
+      success: true,
+      message: 'Đã đánh dấu thông báo là đã đọc'
+    });
+  } catch (error) {
+    console.error('Mark notification as read error:', error);
+    
+    if (error.message === 'NOTIFICATION_NOT_FOUND') {
+      return res.status(404).json({
+        error: 'Không tìm thấy thông báo'
+      });
+    }
+    
+    if (error.message === 'UNAUTHORIZED') {
+      return res.status(403).json({
+        error: 'Bạn không có quyền đánh dấu thông báo này'
+      });
+    }
+    
+    res.status(500).json({
+      error: 'Lỗi khi đánh dấu thông báo đã đọc'
+    });
+  }
+});
+
+// Mark all notifications as read
+router.patch('/read-all', authenticateToken, async (req, res) => {
+  try {
+    const count = await NotificationService.markAllNotificationsAsRead(req.user.id);
+    
+    res.json({
+      success: true,
+      message: `Đã đánh dấu ${count} thông báo là đã đọc`,
+      count
+    });
+  } catch (error) {
+    console.error('Mark all notifications as read error:', error);
+    res.status(500).json({
+      error: 'Lỗi khi đánh dấu tất cả thông báo đã đọc'
     });
   }
 });
