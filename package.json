@@ -18,7 +18,7 @@
     "db:seed": "npm run db:seed --workspace=apps/api",
     "docker:dev": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "prepare": "husky"
+    "postinstall": "husky || true"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
