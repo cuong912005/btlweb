@@ -1,0 +1,16 @@
+{
+  "name": "VolunteerHub",
+  "short_name": "VolunteerHub",
+  "description": "Nền tảng tình nguyện Việt Nam",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
