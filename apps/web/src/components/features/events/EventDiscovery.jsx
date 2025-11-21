@@ -3,109 +3,47 @@ import { useEvents } from '../../../stores/eventStore';
 import { useAuthStore } from '../../../stores/authStore';
 import EventCard from './EventCard';
 import EventFilters from './EventFilters';
+import { showSuccess, showError } from '../../../utils/toast';
 
-// Loading Skeleton Component
 const EventCardSkeleton = () => (
-  <div className="bg-white rounded-lg shadow-md overflow-hidden animate-pulse">
-    <div className="p-6">
-      <div className="flex justify-between items-start mb-4">
-        <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-        <div className="h-6 bg-gray-200 rounded w-16"></div>
-      </div>
-      <div className="space-y-2 mb-4">
-        <div className="h-4 bg-gray-200 rounded"></div>
-        <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-      </div>
-      <div className="space-y-2">
-        <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-      </div>
-    </div>
-    <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
-      <div className="flex justify-between">
-        <div className="h-5 bg-gray-200 rounded w-20"></div>
-        <div className="h-8 bg-gray-200 rounded w-24"></div>
-      </div>
+  <div className="bg-white rounded-3xl shadow-lg overflow-hidden animate-pulse">
+    <div className="h-56 bg-gradient-to-br from-gray-200 to-gray-300"></div>
+    <div className="p-6 space-y-4">
+      <div className="h-6 bg-gray-200 rounded-xl w-3/4"></div>
+      <div className="h-4 bg-gray-200 rounded-lg"></div>
+      <div className="h-4 bg-gray-200 rounded-lg w-5/6"></div>
     </div>
   </div>
 );
 
-// Empty State Component
-const EmptyState = ({ title, description }) => (
-  <div className="text-center py-12">
-    <svg 
-      className="mx-auto h-12 w-12 text-gray-400" 
-      fill="none" 
-      viewBox="0 0 24 24" 
-      stroke="currentColor"
-    >
-      <path 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
-        strokeWidth={2} 
-        d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-3-3v6m0 6a9 9 0 110-18 9 9 0 010 18z" 
-      />
-    </svg>
-    <h3 className="mt-2 text-sm font-medium text-gray-900">{title}</h3>
-    <p className="mt-1 text-sm text-gray-500">{description}</p>
-  </div>
-);
-
-// Registration Confirmation Modal
-const RegistrationModal = ({ isOpen, event, onConfirm, onCancel }) => {
-  if (!isOpen || !event) return null;
+const EmptyState = ({ filters, onClearFilters }) => {
+  const hasFilters = filters.search || filters.category || filters.location || 
+                     filters.startDate || filters.endDate || 
+                     (filters.availability && filters.availability !== 'all') ||
+                     (filters.eventStatus && filters.eventStatus !== 'all') ||
+                     (filters.registrationStatus && filters.registrationStatus !== 'all');
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-        <div className="mt-3 text-center">
-          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100">
-            <svg 
-              className="h-6 w-6 text-indigo-600" 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" 
-              />
-            </svg>
-          </div>
-          <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
-            Xác nhận đăng ký
-          </h3>
-          <div className="mt-2 px-7 py-3">
-            <p className="text-sm text-gray-500">
-              Bạn có muốn đăng ký tham gia sự kiện <strong>"{event.title}"</strong> không?
-            </p>
-            <div className="mt-4 text-xs text-gray-400 space-y-1">
-              <p>📍 {event.location}</p>
-              <p>📅 {new Date(event.startDate).toLocaleDateString('vi-VN')}</p>
-              <p>👥 {event.registrationCount || 0} / {event.capacity || '∞'} người tham gia</p>
-            </div>
-          </div>
-          <div className="items-center px-4 py-3">
-            <div className="flex space-x-3">
-              <button
-                onClick={onCancel}
-                className="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                onClick={onConfirm}
-                className="px-4 py-2 bg-indigo-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              >
-                Xác nhận đăng ký
-              </button>
-            </div>
-          </div>
-        </div>
+    <div className="text-center py-20">
+      <div className="w-32 h-32 mx-auto bg-gradient-to-br from-teal-100 to-cyan-100 rounded-full flex items-center justify-center mb-6">
+        <svg className="h-16 w-16 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
       </div>
+      <h3 className="text-2xl font-bold text-gray-900 mb-2">Không tìm thấy sự kiện</h3>
+      <p className="text-gray-600 text-lg mb-4">
+        {hasFilters 
+          ? 'Không có sự kiện nào phù hợp với bộ lọc của bạn'
+          : 'Hiện tại chưa có sự kiện nào'}
+      </p>
+      {hasFilters && (
+        <button
+          onClick={onClearFilters}
+          className="px-6 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-xl font-semibold hover:from-teal-600 hover:to-cyan-700 transition-all shadow-lg hover:shadow-xl"
+        >
+          Xóa bộ lọc
+        </button>
+      )}
     </div>
   );
 };
@@ -115,178 +53,310 @@ const EventDiscovery = () => {
     events, 
     categories, 
     filters, 
+    pagination,
     isLoading, 
-    updateFilters, 
     applyFilters,
     fetchEvents,
     registerForEvent,
-    error,
-    clearError
+    nextPage,
+    prevPage,
+    goToPage,
+    changePageSize
   } = useEvents();
   
   const { user } = useAuthStore();
-  const [showRegistrationModal, setShowRegistrationModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [registrationLoading, setRegistrationLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Fetch events on component mount only
   useEffect(() => {
-    fetchEvents({ status: 'APPROVED' }); // Load approved events by default
+    fetchEvents({ status: 'APPROVED' });
   }, []);
 
-  const handleRegister = async (eventId) => {
+  const handleRegister = (eventId) => {
     const event = events.find(e => e.id === eventId);
     if (event) {
       setSelectedEvent(event);
-      setShowRegistrationModal(true);
+      setShowModal(true);
     }
   };
 
   const confirmRegistration = async () => {
     if (!selectedEvent) return;
-    
-    setRegistrationLoading(true);
+    setLoading(true);
     try {
       await registerForEvent(selectedEvent.id);
-      setShowRegistrationModal(false);
+      setShowModal(false);
       setSelectedEvent(null);
-      
-      // Show success message
-      alert('Đăng ký thành công! Vui lòng chờ phê duyệt từ ban tổ chức.');
-      
-      // Refresh events to update registration count
+      showSuccess('Đăng ký thành công!');
       await fetchEvents(filters);
     } catch (error) {
-      alert(`Có lỗi xảy ra khi đăng ký: ${error.message}`);
+      showError('Có lỗi xảy ra');
     } finally {
-      setRegistrationLoading(false);
+      setLoading(false);
     }
   };
 
-  const cancelRegistration = () => {
-    setShowRegistrationModal(false);
-    setSelectedEvent(null);
+  // Separate events into available and unavailable
+  const categorizeEvents = (eventList) => {
+    // If user has filtered by registrationStatus, don't re-categorize
+    // Backend already filtered, so show all in appropriate section
+    if (filters.registrationStatus === 'available') {
+      return { available: eventList, unavailable: [] };
+    } else if (filters.registrationStatus === 'unavailable') {
+      return { available: [], unavailable: eventList };
+    }
+
+    // Only categorize when showing "all" registration status
+    const now = new Date();
+    const available = [];
+    const unavailable = [];
+
+    eventList.forEach(event => {
+      const isExpired = new Date(event.endDate) < now;
+      const isFull = event.capacity && event.participantCount >= event.capacity;
+      const isAvailable = !isExpired && !isFull;
+
+      if (isAvailable) {
+        available.push(event);
+      } else {
+        unavailable.push(event);
+      }
+    });
+
+    return { available, unavailable };
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Khám phá sự kiện tình nguyện
-          </h1>
-          <p className="mt-2 text-gray-600">
-            Tìm kiếm và tham gia các hoạt động tình nguyện có ý nghĩa
-          </p>
-        </div>
+  const { available: availableEvents, unavailable: unavailableEvents } = categorizeEvents(events);
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 rounded-md bg-red-50 p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="lg:col-span-1">
+          <EventFilters
+            filters={filters}
+            onFilterChange={applyFilters}
+            categories={categories}
+          />
+        </div>
+        
+        <div className="lg:col-span-3">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-8 gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">Kết quả tìm kiếm</h2>
+              <p className="text-sm text-gray-600">
+                {isLoading ? 'Đang tải...' : (
+                  <>
+                    <span className="text-teal-600 font-semibold">{availableEvents.length} có thể đăng ký</span>
+                    {' • '}
+                    <span className="text-gray-500">{unavailableEvents.length} đã kết thúc/đầy</span>
+                    {' • '}
+                    Trang {pagination.currentPage}/{pagination.totalPages}
+                  </>
+                )}
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <select 
+                value={`${filters.sortBy}-${filters.sortOrder}`}
+                onChange={(e) => {
+                  const [sortBy, sortOrder] = e.target.value.split('-');
+                  applyFilters({ sortBy, sortOrder });
+                }}
+                className="px-4 py-2.5 rounded-xl border-2 border-gray-200 bg-white text-sm font-medium text-gray-700 hover:border-teal-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all"
+              >
+                <option value="date-asc">🗓️ Sắp diễn ra</option>
+                <option value="created-desc">✨ Mới nhất</option>
+                <option value="popularity-desc">🔥 Hot nhất</option>
+              </select>
+              
+              <select 
+                value={filters.limit}
+                onChange={(e) => changePageSize(parseInt(e.target.value))}
+                className="px-4 py-2.5 rounded-xl border-2 border-gray-200 bg-white text-sm font-medium text-gray-700 hover:border-teal-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 transition-all"
+              >
+                <option value={6}>6/trang</option>
+                <option value={12}>12/trang</option>
+                <option value={24}>24/trang</option>
+              </select>
+            </div>
+          </div>
+          
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {[...Array(6)].map((_, i) => <EventCardSkeleton key={i} />)}
+            </div>
+          ) : events.length > 0 ? (
+            <div className="space-y-12">
+              {/* Available Events Section */}
+              {availableEvents.length > 0 && (
+                <div>
+                  <div className="flex items-center mb-6">
+                    <div className="flex-shrink-0 w-2 h-8 bg-gradient-to-b from-teal-500 to-cyan-600 rounded-full mr-3"></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">✨ Sự kiện đang mở đăng ký</h3>
+                      <p className="text-sm text-teal-600 font-medium">{availableEvents.length} sự kiện có thể tham gia</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {availableEvents.map((event) => (
+                      <div key={event.id} className="relative">
+                        {/* Highlight badge */}
+                        <div className="absolute -top-3 -right-3 z-10 bg-gradient-to-r from-teal-500 to-cyan-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg animate-pulse">
+                          🎯 Có thể đăng ký
+                        </div>
+                        <EventCard
+                          event={event}
+                          onRegister={user?.role === 'VOLUNTEER' ? handleRegister : null}
+                          showActions={true}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Unavailable Events Section */}
+              {unavailableEvents.length > 0 && (
+                <div>
+                  <div className="flex items-center mb-6">
+                    <div className="flex-shrink-0 w-2 h-8 bg-gradient-to-b from-gray-400 to-gray-500 rounded-full mr-3"></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">📋 Sự kiện đã kết thúc / đầy chỗ</h3>
+                      <p className="text-sm text-gray-500 font-medium">{unavailableEvents.length} sự kiện để xem thông tin</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {unavailableEvents.map((event) => (
+                      <EventCard
+                        key={event.id}
+                        event={event}
+                        onRegister={user?.role === 'VOLUNTEER' ? handleRegister : null}
+                        showActions={true}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <EmptyState 
+              filters={filters}
+              onClearFilters={() => applyFilters({ 
+                search: '', 
+                category: '', 
+                location: '', 
+                startDate: '', 
+                endDate: '', 
+                availability: 'all',
+                eventStatus: 'all',
+                registrationStatus: 'all'
+              })}
+            />
+          )}
+          
+          {events.length > 0 && pagination.totalPages > 1 && (
+            <div className="mt-12">
+              <div className="flex justify-center items-center gap-2">
+                <button 
+                  onClick={() => pagination.hasPrev && prevPage()}
+                  disabled={!pagination.hasPrev}
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-700 bg-white border-2 border-gray-200 rounded-xl hover:border-teal-300 hover:bg-teal-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  ← Trước
+                </button>
+                
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (pagination.totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (pagination.currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (pagination.currentPage >= pagination.totalPages - 2) {
+                    pageNum = pagination.totalPages - 4 + i;
+                  } else {
+                    pageNum = pagination.currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => goToPage(pageNum)}
+                      className={`px-4 py-2.5 text-sm font-semibold rounded-xl transition-all ${
+                        pageNum === pagination.currentPage
+                          ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg'
+                          : 'text-gray-700 bg-white border-2 border-gray-200 hover:border-teal-300 hover:bg-teal-50'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                
+                <button 
+                  onClick={() => pagination.hasNext && nextPage()}
+                  disabled={!pagination.hasNext}
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-700 bg-white border-2 border-gray-200 rounded-xl hover:border-teal-300 hover:bg-teal-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  Sau →
+                </button>
+              </div>
+              
+              <div className="mt-6 text-center text-sm text-gray-600 font-medium">
+                Hiển thị {Math.min(events.length, pagination.limit)} trong tổng {pagination.totalCount} sự kiện
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showModal && selectedEvent && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-gradient-to-br from-teal-500 to-cyan-600 mb-4">
+                <svg className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Có lỗi xảy ra</h3>
-                <p className="mt-1 text-sm text-red-700">{error}</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Xác nhận đăng ký</h3>
+              <p className="text-gray-600 mb-6">Bạn muốn tham gia sự kiện này?</p>
+              
+              <div className="bg-gradient-to-br from-teal-50 to-cyan-50 rounded-2xl p-6 mb-6 text-left">
+                <h4 className="font-semibold text-gray-900 mb-3">{selectedEvent.title}</h4>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <p>📍 {selectedEvent.location}</p>
+                  <p>📅 {new Date(selectedEvent.startDate).toLocaleDateString('vi-VN')}</p>
+                </div>
               </div>
-              <div className="ml-auto pl-3">
+
+              <div className="flex gap-3">
                 <button
-                  onClick={clearError}
-                  className="text-red-400 hover:text-red-600"
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 px-6 py-3 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors"
+                  disabled={loading}
                 >
-                  <span className="sr-only">Đóng</span>
-                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
+                  Hủy
+                </button>
+                <button
+                  onClick={confirmRegistration}
+                  disabled={loading}
+                  className="flex-1 px-6 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl font-medium hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50"
+                >
+                  {loading ? 'Đang xử lý...' : 'Xác nhận'}
                 </button>
               </div>
             </div>
           </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Filters Sidebar */}
-          <div className="lg:col-span-1">
-            <EventFilters
-              filters={filters}
-              onFilterChange={applyFilters}
-              categories={categories}
-            />
-          </div>
-          
-          {/* Events Grid */}
-          <div className="lg:col-span-3">
-            {/* Results Header */}
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-lg font-medium text-gray-900">
-                  Sự kiện được tìm thấy
-                </h2>
-                <p className="text-sm text-gray-500">
-                  {isLoading ? 'Đang tải...' : `${events.length} sự kiện`}
-                </p>
-              </div>
-              
-              {/* Sort Options (Future enhancement) */}
-              <div className="hidden sm:block">
-                <select className="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                  <option>Mới nhất</option>
-                  <option>Sắp diễn ra</option>
-                  <option>Nhiều người tham gia</option>
-                </select>
-              </div>
-            </div>
-            
-            {/* Events Grid */}
-            {isLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {[...Array(6)].map((_, i) => (
-                  <EventCardSkeleton key={i} />
-                ))}
-              </div>
-            ) : events.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {events.map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    onRegister={user?.role === 'VOLUNTEER' ? handleRegister : null}
-                    showActions={true}
-                  />
-                ))}
-              </div>
-            ) : (
-              <EmptyState
-                title="Không tìm thấy sự kiện"
-                description="Thử thay đổi bộ lọc để tìm kiếm sự kiện phù hợp với bạn"
-              />
-            )}
-          </div>
         </div>
-      </div>
+      )}
 
-      {/* Registration Modal */}
-      <RegistrationModal
-        isOpen={showRegistrationModal}
-        event={selectedEvent}
-        onConfirm={confirmRegistration}
-        onCancel={cancelRegistration}
-      />
-
-      {/* Registration Loading Overlay */}
-      {registrationLoading && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 flex items-center space-x-3">
-            <svg className="animate-spin h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-            </svg>
-            <span className="text-gray-900">Đang đăng ký...</span>
+      {loading && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-3xl p-8 flex flex-col items-center shadow-2xl">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-indigo-200 border-t-indigo-600 mb-4"></div>
+            <span className="text-gray-900 font-semibold text-lg">Đang đăng ký...</span>
           </div>
         </div>
       )}
