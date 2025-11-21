@@ -27,7 +27,30 @@ await redis.connect();
 const app = express();
 const server = createServer(app);
 
+// CORS allowed origins
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  /https:\/\/.*\.vercel\.app$/,
+  /https:\/\/.*\.netlify\.app$/,
+  /https:\/\/.*\.onrender\.com$/
+].filter(Boolean);
 
+console.log('🔒 CORS Configuration:', {
+  CLIENT_URL: process.env.CLIENT_URL,
+  allowedOrigins: allowedOrigins.map(o => typeof o === 'string' ? o : o.toString())
+});
+
+// Initialize Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
+});
 
 // Security middleware
 app.use(helmet({
@@ -42,38 +65,32 @@ app.use(helmet({
 }));
 
 // CORS configuration
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  process.env.FRONTEND_URL
-].filter(Boolean); // This filters out undefined values
-
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.)
-    if (!origin) return callback(null, true);
+    console.log('📥 Request from origin:', origin);
     
-    if (allowedOrigins.some(allowed => {
-      if (allowed instanceof RegExp) {
-        return allowed.test(origin);
-      }
-      return allowed === origin;
-    })) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      console.log('✅ Allowing request with no origin');
+      return callback(null, true);
+    }
+    
+    // Check if origin is allowed
+    const isAllowed = allowedOrigins.some(o => 
+      typeof o === 'string' ? o === origin : o.test(origin)
+    );
+    
+    if (isAllowed) {
+      console.log('✅ CORS allowed for origin:', origin);
       callback(null, true);
     } else {
+      console.warn('❌ CORS blocked origin:', origin);
+      console.warn('📋 Allowed origins:', allowedOrigins.map(o => typeof o === 'string' ? o : o.toString()));
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true
 }));
-
-const io = new Server(server, {
-  cors: {
-    origin: allowedOrigins,
-    credentials: true
-  },
-  transports: ['websocket', 'polling']
-});
 
 //Rate limiting
 // const limiter = rateLimit({
