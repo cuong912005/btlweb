@@ -271,7 +271,7 @@ const RegisterForm = () => {
             {/* Phone Field */}
             <div>
               <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-2">
-                📱 Số điện thoại <span className="text-gray-400 font-normal">(không bắt buộc)</span>
+                📱 Số điện thoại <span className="text-gray-400 font-normal">(Phải là số điện thoại Việt Nam)</span>
               </label>
               <div className="mt-1">
                 <input

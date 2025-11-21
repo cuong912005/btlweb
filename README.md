@@ -25,7 +25,7 @@
 **Tình nguyện viên:**
 - Email: `volunteer@example.com`
 - Password: `Volunteer@123456`
-
+- Hoặc tự đăng kí
 ## 📋 Mục lục
 
 - [Demo](#-demo)
