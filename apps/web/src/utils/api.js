@@ -2,14 +2,16 @@ import axios from 'axios';
 
 
 // Create axios instance
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 const api = axios.create({
-  baseURL: 'http://localhost:3001/api',
+  baseURL: `${API_URL}/api`,
   withCredentials: true,
-  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
-  }
+  },
 });
+
 
 // Request interceptor
 api.interceptors.request.use(
