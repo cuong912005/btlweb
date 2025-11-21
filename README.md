@@ -16,7 +16,7 @@
 
 **Quản trị viên:**
 - Email: `admin@volunteerhub.vn`
-- Password: `admin123456`
+- Password: `Admin@123456`
 
 **Tổ chức:**
 - Email: `org@example.com`
@@ -24,7 +24,7 @@
 
 **Tình nguyện viên:**
 - Email: `volunteer@example.com`
-- Password: `Volunteer@123`
+- Password: `Volunteer@123456`
 
 ## 📋 Mục lục
 
